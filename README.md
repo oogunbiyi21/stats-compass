@@ -106,7 +106,7 @@ This project is in active development. Feel free to:
 
 ## 📝 License
 
-[Add your license here]
+mit license
 
 ## 🔗 Links
 
