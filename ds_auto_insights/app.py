@@ -69,29 +69,37 @@ tab1, tab2, tab3 = st.tabs(["Chat (LLM)", "Summary", "Explore"])
 with tab1:
     st.header("Chat (tool-calling)")
 
-    # 1) If we have a message queued from the previous run, process it first
+    # 1) Replay existing chat history first (before processing new message)
+    for msg in st.session_state.chat_history:
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
+
+    # 2) If we have a message queued from the previous run, process it
     queued = st.session_state.pop("to_process", None)
     if queued is not None and st.session_state.df is not None:
         # Show the user's message
-        st.session_state.chat_history.append({"role": "user", "content": queued})
         with st.chat_message("user"):
             st.markdown(queued)
+        st.session_state.chat_history.append({"role": "user", "content": queued})
 
         # Assistant "thinking…" placeholder
         with st.chat_message("assistant"):
             placeholder = st.empty()
             placeholder.markdown("⏳ Thinking...")
 
-        # Call your agent
-        try:
-            result = run_mcp_planner(queued, df_use)
-            final_text = result.get("output", "(No output)")
-        except Exception as e:
-            final_text = f"❌ Agent error: {e}"
-            result = {}
+            # Call your agent WITH chat history for context
+            try:
+                result = run_mcp_planner(
+                    queued, 
+                    df_use, 
+                    chat_history=st.session_state.chat_history[:-1]  # Exclude the current user message
+                )
+                final_text = result.get("output", "(No output)")
+            except Exception as e:
+                final_text = f"❌ Agent error: {e}"
+                result = {}
 
-        # Replace "thinking" with the actual answer
-        with st.chat_message("assistant"):
+            # Replace "thinking" with the actual answer
             placeholder.empty()
             st.markdown(final_text)
 
@@ -109,11 +117,6 @@ with tab1:
 
         # Persist assistant reply
         st.session_state.chat_history.append({"role": "assistant", "content": final_text})
-
-    # 2) Replay entire chat history (so everything is up to date)
-    for msg in st.session_state.chat_history:
-        with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
 
     # 3) Place the chat input at the END. When user submits, queue it + rerun.
     user_query = st.chat_input("Ask a question about your data", key="chat_input_bottom")

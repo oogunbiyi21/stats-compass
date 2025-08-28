@@ -1,6 +1,6 @@
 # planner_mcp.py
 
-from typing import Any, Dict
+from typing import Any, Dict, List
 import pandas as pd
 
 from langchain_openai import ChatOpenAI
@@ -10,11 +10,14 @@ from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from mcp_tools import RunPandasQueryTool
 
 
-def run_mcp_planner(user_query: str, df: pd.DataFrame) -> Dict[str, Any]:
+def run_mcp_planner(user_query: str, df: pd.DataFrame, chat_history: List[Dict] = None) -> Dict[str, Any]:
     """
     Tool-calling agent wired to your RunPandasQueryTool.
+    Now includes chat history for context preservation.
     Returns the AgentExecutor invoke() output (dict with 'output' and possibly intermediate steps).
     """
+    if chat_history is None:
+        chat_history = []
 
     # 1) Instantiate your tool (inherits BaseTool)
     pandas_query_tool = RunPandasQueryTool(df=df)
@@ -23,12 +26,16 @@ def run_mcp_planner(user_query: str, df: pd.DataFrame) -> Dict[str, Any]:
     # 2) LLM (swap to Claude/Gemini later by changing the Chat* class)
     llm = ChatOpenAI(model="gpt-4o", temperature=0)
 
-    # 3) Prompt MUST include `agent_scratchpad`
+    # 3) Enhanced prompt with chat history context
     prompt = ChatPromptTemplate.from_messages([
         ("system",
          "You are a careful data analysis assistant. "
          "You have access to a pandas DataFrame named `df` via tools. "
-         "Always use tools to compute on the data; do not guess."),
+         "Always use tools to compute on the data; do not guess. "
+         "You maintain context across the conversation - if you've previously identified "
+         "information about the dataset (like player names, data types, etc.), remember it. "
+         "Refer to previous analysis and build upon it in your responses."),
+        MessagesPlaceholder(variable_name="chat_history"),
         ("user", "{input}"),
         MessagesPlaceholder(variable_name="agent_scratchpad"),
     ])
@@ -43,6 +50,17 @@ def run_mcp_planner(user_query: str, df: pd.DataFrame) -> Dict[str, Any]:
         return_intermediate_steps=True
     )
 
-    # 5) Run
-    result = executor.invoke({"input": user_query})
+    # 5) Convert chat history to langchain format
+    messages = []
+    for msg in chat_history:
+        if msg["role"] == "user":
+            messages.append(("human", msg["content"]))
+        elif msg["role"] == "assistant":
+            messages.append(("ai", msg["content"]))
+
+    # 6) Run with chat history
+    result = executor.invoke({
+        "input": user_query,
+        "chat_history": messages
+    })
     return result
