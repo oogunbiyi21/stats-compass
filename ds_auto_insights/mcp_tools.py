@@ -24,10 +24,10 @@ class GetSchemaTool(BaseTool):
         super().__init__()
         self._df = df
 
-    def _run(self, _: GetSchemaInput):
+    def _run(self) -> str:
         return str(self._df.dtypes)
 
-    def _arun(self, _: GetSchemaInput):
+    def _arun(self):
         raise NotImplementedError("Async not supported")
 
 
@@ -47,10 +47,10 @@ class GetSampleRowsTool(BaseTool):
         super().__init__()
         self._df = df
 
-    def _run(self, inputs: GetSampleRowsInput):
-        return str(self._df.head(inputs.num_rows).to_markdown())
+    def _run(self, num_rows: int) -> str:
+        return str(self._df.head(num_rows).to_markdown())
 
-    def _arun(self, inputs: GetSampleRowsInput):
+    def _arun(self, num_rows: int):
         raise NotImplementedError("Async not supported")
 
 
@@ -70,13 +70,12 @@ class DescribeColumnTool(BaseTool):
         super().__init__()
         self._df = df
 
-    def _run(self, inputs: DescribeColumnInput):
-        col = inputs.column_name
-        if col not in self._df.columns:
-            return f"Column '{col}' not found."
-        return str(self._df[col].describe(include='all'))
+    def _run(self, column_name: str) -> str:
+        if column_name not in self._df.columns:
+            return f"Column '{column_name}' not found."
+        return str(self._df[column_name].describe(include='all'))
 
-    def _arun(self, inputs: DescribeColumnInput):
+    def _arun(self, column_name: str):
         raise NotImplementedError("Async not supported")
 
 
@@ -159,22 +158,20 @@ class GroupByAggregateTool(BaseTool):
         super().__init__()
         self._df = df
 
-    def _run(self, inputs: GroupByAggregateInput):
+    def _run(self, group_column: str, metric_column: str, aggregation: str) -> str:
         try:
-            group_col = inputs.group_column
-            metric_col = inputs.metric_column
-            agg_func = inputs.aggregation.lower()
+            agg_func = aggregation.lower()
 
-            if group_col not in self._df.columns:
-                return f"❌ Group column '{group_col}' not found."
-            if metric_col not in self._df.columns:
-                return f"❌ Metric column '{metric_col}' not found."
+            if group_column not in self._df.columns:
+                return f"❌ Group column '{group_column}' not found."
+            if metric_column not in self._df.columns:
+                return f"❌ Metric column '{metric_column}' not found."
 
             valid_aggs = ['mean', 'sum', 'count', 'max', 'min', 'std', 'median']
             if agg_func not in valid_aggs:
                 return f"❌ Invalid aggregation. Use one of: {valid_aggs}"
 
-            grouped = self._df.groupby(group_col)[metric_col]
+            grouped = self._df.groupby(group_column)[metric_column]
             
             if agg_func == 'mean':
                 result = grouped.mean()
@@ -191,12 +188,12 @@ class GroupByAggregateTool(BaseTool):
             elif agg_func == 'median':
                 result = grouped.median()
 
-            return f"📊 {agg_func.title()} of {metric_col} by {group_col}:\n{result.to_string()}"
+            return f"📊 {agg_func.title()} of {metric_column} by {group_column}:\n{result.to_string()}"
 
         except Exception as e:
             return f"❌ Error in groupby aggregation: {e}"
 
-    def _arun(self, inputs: GroupByAggregateInput):
+    def _arun(self, group_column: str, metric_column: str, aggregation: str):
         raise NotImplementedError("Async not supported")
 
 
@@ -217,11 +214,8 @@ class TopCategoriesTool(BaseTool):
         super().__init__()
         self._df = df
 
-    def _run(self, inputs: TopCategoriesInput):
+    def _run(self, column: str, n: int = 10) -> str:
         try:
-            column = inputs.column
-            n = inputs.n
-
             if column not in self._df.columns:
                 return f"❌ Column '{column}' not found."
 
@@ -238,7 +232,7 @@ class TopCategoriesTool(BaseTool):
         except Exception as e:
             return f"❌ Error analyzing categories: {e}"
 
-    def _arun(self, inputs: TopCategoriesInput):
+    def _arun(self, column: str, n: int = 10):
         raise NotImplementedError("Async not supported")
 
 
@@ -259,11 +253,8 @@ class HistogramTool(BaseTool):
         super().__init__()
         self._df = df
 
-    def _run(self, inputs: HistogramInput):
+    def _run(self, column: str, bins: int = 10) -> str:
         try:
-            column = inputs.column
-            bins = inputs.bins
-
             if column not in self._df.columns:
                 return f"❌ Column '{column}' not found."
 
@@ -293,7 +284,7 @@ class HistogramTool(BaseTool):
         except Exception as e:
             return f"❌ Error creating histogram: {e}"
 
-    def _arun(self, inputs: HistogramInput):
+    def _arun(self, column: str, bins: int = 10):
         raise NotImplementedError("Async not supported")
 
 
@@ -314,16 +305,16 @@ class CorrelationMatrixTool(BaseTool):
         super().__init__()
         self._df = df
 
-    def _run(self, inputs: CorrelationMatrixInput):
+    def _run(self, columns: list = None, method: str = "pearson") -> str:
         try:
-            method = inputs.method.lower()
+            method = method.lower()
             if method not in ['pearson', 'spearman', 'kendall']:
                 return f"❌ Invalid method. Use: pearson, spearman, or kendall"
 
             # Select numeric columns
-            if inputs.columns:
+            if columns:
                 # Use specified columns
-                numeric_cols = [col for col in inputs.columns if col in self._df.columns and pd.api.types.is_numeric_dtype(self._df[col])]
+                numeric_cols = [col for col in columns if col in self._df.columns and pd.api.types.is_numeric_dtype(self._df[col])]
                 if not numeric_cols:
                     return f"❌ No valid numeric columns found in specified list."
                 df_numeric = self._df[numeric_cols]
@@ -361,5 +352,5 @@ class CorrelationMatrixTool(BaseTool):
         except Exception as e:
             return f"❌ Error calculating correlation: {e}"
 
-    def _arun(self, inputs: CorrelationMatrixInput):
+    def _arun(self, columns: list = None, method: str = "pearson"):
         raise NotImplementedError("Async not supported")
