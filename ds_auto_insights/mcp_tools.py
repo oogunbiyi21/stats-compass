@@ -18,12 +18,14 @@ class GetSchemaTool(BaseTool):
     description: str = "Returns the names and types of columns in the uploaded dataframe."
     args_schema: Type[BaseModel] = GetSchemaInput
 
+    _df: pd.DataFrame = PrivateAttr()
+
     def __init__(self, df: pd.DataFrame):
         super().__init__()
-        self.df = df
+        self._df = df
 
     def _run(self, _: GetSchemaInput):
-        return str(self.df.dtypes)
+        return str(self._df.dtypes)
 
     def _arun(self, _: GetSchemaInput):
         raise NotImplementedError("Async not supported")
@@ -39,12 +41,14 @@ class GetSampleRowsTool(BaseTool):
     description: str = "Returns a few rows from the dataframe to understand the data format."
     args_schema: Type[BaseModel] = GetSampleRowsInput
 
+    _df: pd.DataFrame = PrivateAttr()
+
     def __init__(self, df: pd.DataFrame):
         super().__init__()
-        self.df = df
+        self._df = df
 
     def _run(self, inputs: GetSampleRowsInput):
-        return str(self.df.head(inputs.num_rows).to_markdown())
+        return str(self._df.head(inputs.num_rows).to_markdown())
 
     def _arun(self, inputs: GetSampleRowsInput):
         raise NotImplementedError("Async not supported")
@@ -60,15 +64,17 @@ class DescribeColumnTool(BaseTool):
     description: str = "Returns descriptive statistics of a specified column."
     args_schema: Type[BaseModel] = DescribeColumnInput
 
+    _df: pd.DataFrame = PrivateAttr()
+
     def __init__(self, df: pd.DataFrame):
         super().__init__()
-        self.df = df
+        self._df = df
 
     def _run(self, inputs: DescribeColumnInput):
         col = inputs.column_name
-        if col not in self.df.columns:
+        if col not in self._df.columns:
             return f"Column '{col}' not found."
-        return str(self.df[col].describe(include='all'))
+        return str(self._df[col].describe(include='all'))
 
     def _arun(self, inputs: DescribeColumnInput):
         raise NotImplementedError("Async not supported")
@@ -147,9 +153,11 @@ class GroupByAggregateTool(BaseTool):
     description: str = "Group data by a column and aggregate a metric. Safer than writing groupby manually."
     args_schema: Type[BaseModel] = GroupByAggregateInput
 
+    _df: pd.DataFrame = PrivateAttr()
+
     def __init__(self, df: pd.DataFrame):
         super().__init__()
-        self.df = df
+        self._df = df
 
     def _run(self, inputs: GroupByAggregateInput):
         try:
@@ -157,16 +165,16 @@ class GroupByAggregateTool(BaseTool):
             metric_col = inputs.metric_column
             agg_func = inputs.aggregation.lower()
 
-            if group_col not in self.df.columns:
+            if group_col not in self._df.columns:
                 return f"❌ Group column '{group_col}' not found."
-            if metric_col not in self.df.columns:
+            if metric_col not in self._df.columns:
                 return f"❌ Metric column '{metric_col}' not found."
 
             valid_aggs = ['mean', 'sum', 'count', 'max', 'min', 'std', 'median']
             if agg_func not in valid_aggs:
                 return f"❌ Invalid aggregation. Use one of: {valid_aggs}"
 
-            grouped = self.df.groupby(group_col)[metric_col]
+            grouped = self._df.groupby(group_col)[metric_col]
             
             if agg_func == 'mean':
                 result = grouped.mean()
@@ -203,20 +211,22 @@ class TopCategoriesTool(BaseTool):
     description: str = "Get the top N most frequent values in a categorical column."
     args_schema: Type[BaseModel] = TopCategoriesInput
 
+    _df: pd.DataFrame = PrivateAttr()
+
     def __init__(self, df: pd.DataFrame):
         super().__init__()
-        self.df = df
+        self._df = df
 
     def _run(self, inputs: TopCategoriesInput):
         try:
             column = inputs.column
             n = inputs.n
 
-            if column not in self.df.columns:
+            if column not in self._df.columns:
                 return f"❌ Column '{column}' not found."
 
-            value_counts = self.df[column].value_counts().head(n)
-            total_count = len(self.df)
+            value_counts = self._df[column].value_counts().head(n)
+            total_count = len(self._df)
             
             result_lines = [f"📊 Top {n} categories in '{column}':"]
             for value, count in value_counts.items():
@@ -243,23 +253,25 @@ class HistogramTool(BaseTool):
     description: str = "Generate histogram data for a numeric column to understand distribution."
     args_schema: Type[BaseModel] = HistogramInput
 
+    _df: pd.DataFrame = PrivateAttr()
+
     def __init__(self, df: pd.DataFrame):
         super().__init__()
-        self.df = df
+        self._df = df
 
     def _run(self, inputs: HistogramInput):
         try:
             column = inputs.column
             bins = inputs.bins
 
-            if column not in self.df.columns:
+            if column not in self._df.columns:
                 return f"❌ Column '{column}' not found."
 
             # Check if column is numeric
-            if not pd.api.types.is_numeric_dtype(self.df[column]):
+            if not pd.api.types.is_numeric_dtype(self._df[column]):
                 return f"❌ Column '{column}' is not numeric. Use top_categories for categorical data."
 
-            series = self.df[column].dropna()
+            series = self._df[column].dropna()
             if len(series) == 0:
                 return f"❌ No data available in column '{column}' after removing missing values."
 
@@ -296,9 +308,11 @@ class CorrelationMatrixTool(BaseTool):
     description: str = "Calculate correlation matrix for numeric columns."
     args_schema: Type[BaseModel] = CorrelationMatrixInput
 
+    _df: pd.DataFrame = PrivateAttr()
+
     def __init__(self, df: pd.DataFrame):
         super().__init__()
-        self.df = df
+        self._df = df
 
     def _run(self, inputs: CorrelationMatrixInput):
         try:
@@ -309,13 +323,13 @@ class CorrelationMatrixTool(BaseTool):
             # Select numeric columns
             if inputs.columns:
                 # Use specified columns
-                numeric_cols = [col for col in inputs.columns if col in self.df.columns and pd.api.types.is_numeric_dtype(self.df[col])]
+                numeric_cols = [col for col in inputs.columns if col in self._df.columns and pd.api.types.is_numeric_dtype(self._df[col])]
                 if not numeric_cols:
                     return f"❌ No valid numeric columns found in specified list."
-                df_numeric = self.df[numeric_cols]
+                df_numeric = self._df[numeric_cols]
             else:
                 # Use all numeric columns
-                df_numeric = self.df.select_dtypes(include=['number'])
+                df_numeric = self._df.select_dtypes(include=['number'])
                 
             if len(df_numeric.columns) < 2:
                 return f"❌ Need at least 2 numeric columns for correlation. Found: {list(df_numeric.columns)}"

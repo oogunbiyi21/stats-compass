@@ -7,13 +7,22 @@ from langchain_openai import ChatOpenAI
 from langchain.agents import create_tool_calling_agent, AgentExecutor
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
-from .mcp_tools import (
-    RunPandasQueryTool,
-    GroupByAggregateTool,
-    TopCategoriesTool,
-    HistogramTool,
-    CorrelationMatrixTool
-)
+try:
+    from .mcp_tools import (
+        RunPandasQueryTool,
+        GroupByAggregateTool,
+        TopCategoriesTool,
+        HistogramTool,
+        CorrelationMatrixTool
+    )
+except ImportError:
+    from mcp_tools import (
+        RunPandasQueryTool,
+        GroupByAggregateTool,
+        TopCategoriesTool,
+        HistogramTool,
+        CorrelationMatrixTool
+    )
 
 
 def run_mcp_planner(user_query: str, df: pd.DataFrame, chat_history: List[Dict] = None) -> Dict[str, Any]:
