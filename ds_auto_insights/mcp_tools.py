@@ -115,9 +115,13 @@ class RunPandasQueryTool(BaseTool):
             return "❌ Unsafe query detected. Only simple pandas expressions are allowed."
 
         try:
-            local_vars: dict = {"df": self._df}
-            result = eval(query, {}, local_vars)
-            return str(result)
+            # Set pandas display options to show all columns
+            with pd.option_context('display.max_columns', None, 
+                                   'display.width', None, 
+                                   'display.max_colwidth', 50):
+                local_vars: dict = {"df": self._df}
+                result = eval(query, {}, local_vars)
+                return str(result)
         except Exception as e:
             return f"❌ Error running query: {e}"
 
@@ -135,6 +139,43 @@ class NarrativeExplainTool(BaseTool):
         return f"Here's what the result means: {inputs.raw_result}"
 
     def _arun(self, inputs: NarrativeExplainInput):
+        raise NotImplementedError("Async not supported")
+
+
+# Tool: Get comprehensive dataset preview
+class DatasetPreviewInput(BaseModel):
+    num_rows: int = Field(default=5, description="Number of rows to show")
+
+
+class DatasetPreviewTool(BaseTool):
+    name: str = "dataset_preview"
+    description: str = "Get a comprehensive preview of the dataset showing ALL columns (no truncation)."
+    args_schema: Type[BaseModel] = DatasetPreviewInput
+
+    _df: pd.DataFrame = PrivateAttr()
+
+    def __init__(self, df: pd.DataFrame):
+        super().__init__()
+        self._df = df
+
+    def _run(self, num_rows: int = 5) -> str:
+        try:
+            # Set pandas display options to show all columns
+            with pd.option_context('display.max_columns', None, 
+                                   'display.width', None, 
+                                   'display.max_colwidth', 50):
+                preview = self._df.head(num_rows)
+                
+                result_lines = [f"📊 Dataset Preview ({len(self._df)} total rows, {len(self._df.columns)} columns):"]
+                result_lines.append(f"Columns: {list(self._df.columns)}")
+                result_lines.append("\nFirst {num_rows} rows:")
+                result_lines.append(str(preview))
+                
+                return "\n".join(result_lines)
+        except Exception as e:
+            return f"❌ Error creating dataset preview: {e}"
+
+    def _arun(self, num_rows: int = 5):
         raise NotImplementedError("Async not supported")
 
 

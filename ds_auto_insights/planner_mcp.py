@@ -13,7 +13,8 @@ try:
         GroupByAggregateTool,
         TopCategoriesTool,
         HistogramTool,
-        CorrelationMatrixTool
+        CorrelationMatrixTool,
+        DatasetPreviewTool
     )
 except ImportError:
     from mcp_tools import (
@@ -21,7 +22,8 @@ except ImportError:
         GroupByAggregateTool,
         TopCategoriesTool,
         HistogramTool,
-        CorrelationMatrixTool
+        CorrelationMatrixTool,
+        DatasetPreviewTool
     )
 
 
@@ -40,8 +42,9 @@ def run_mcp_planner(user_query: str, df: pd.DataFrame, chat_history: List[Dict] 
     top_categories_tool = TopCategoriesTool(df=df)
     histogram_tool = HistogramTool(df=df)
     correlation_tool = CorrelationMatrixTool(df=df)
+    dataset_preview_tool = DatasetPreviewTool(df=df)
     
-    tools = [pandas_query_tool, groupby_tool, top_categories_tool, histogram_tool, correlation_tool]
+    tools = [pandas_query_tool, groupby_tool, top_categories_tool, histogram_tool, correlation_tool, dataset_preview_tool]
 
     # 2) LLM (swap to Claude/Gemini later by changing the Chat* class)
     llm = ChatOpenAI(model="gpt-4o", temperature=0)
@@ -51,12 +54,15 @@ def run_mcp_planner(user_query: str, df: pd.DataFrame, chat_history: List[Dict] 
         ("system",
          "You are a careful data analysis assistant. "
          "You have access to a pandas DataFrame named `df` and several specialized tools:\n"
-         "- run_pandas_query: For custom pandas expressions (use sparingly)\n"
-         "- groupby_aggregate: Group data and calculate aggregations (mean, sum, count, etc.)\n"
-         "- top_categories: Find most frequent values in categorical columns\n"
-         "- histogram: Analyze distribution of numeric columns\n"
-         "- correlation_matrix: Calculate correlations between numeric columns\n\n"
-         "PREFER the specialized tools over run_pandas_query when possible - they're safer and more reliable.\n"
+         "- dataset_preview: Get a complete view of the dataset with ALL columns visible (use this instead of df.head())\n"
+         "- run_pandas_query: For custom pandas expressions (use ONLY when specialized tools can't do the job)\n"
+         "- groupby_aggregate: Group data and calculate aggregations (mean, sum, count, etc.) - USE THIS for any grouping questions\n"
+         "- top_categories: Find most frequent values in categorical columns - USE THIS for 'top X' questions\n"
+         "- histogram: Analyze distribution of numeric columns - USE THIS for distribution/histogram questions\n"
+         "- correlation_matrix: Calculate correlations between numeric columns - USE THIS for correlation questions\n\n"
+         "IMPORTANT: Always try specialized tools FIRST. Only use run_pandas_query as a last resort.\n"
+         "Use dataset_preview instead of df.head() to see ALL columns without truncation.\n"
+         "When asked for histograms, distributions, grouping, or top categories, use the appropriate specialized tool.\n"
          "You maintain context across the conversation - if you've previously identified "
          "information about the dataset (like player names, data types, etc.), remember it. "
          "Refer to previous analysis and build upon it in your responses."),
