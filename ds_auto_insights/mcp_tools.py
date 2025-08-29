@@ -487,13 +487,15 @@ class CreateHistogramChartTool(BaseTool):
             import streamlit as st
             if hasattr(st, 'session_state'):
                 if 'chart_data' not in st.session_state:
-                    st.session_state.chart_data = {}
-                st.session_state.chart_data['histogram'] = {
+                    st.session_state.chart_data = []
+                
+                chart_info = {
                     'type': 'histogram',
                     'data': chart_data,
                     'column': column,
                     'title': chart_title
                 }
+                st.session_state.chart_data.append(chart_info)
             
             result += "Chart data prepared for display. 📈"
             return result
@@ -553,13 +555,15 @@ class CreateBarChartTool(BaseTool):
             import streamlit as st
             if hasattr(st, 'session_state'):
                 if 'chart_data' not in st.session_state:
-                    st.session_state.chart_data = {}
-                st.session_state.chart_data['bar_chart'] = {
+                    st.session_state.chart_data = []
+                
+                chart_info = {
                     'type': 'bar',
                     'data': chart_data,
                     'column': column,
                     'title': chart_title
                 }
+                st.session_state.chart_data.append(chart_info)
             
             result += "\nChart data prepared for display. 📈"
             return result
@@ -638,8 +642,9 @@ class CreateScatterPlotTool(BaseTool):
             import streamlit as st
             if hasattr(st, 'session_state'):
                 if 'chart_data' not in st.session_state:
-                    st.session_state.chart_data = {}
-                st.session_state.chart_data['scatter_plot'] = {
+                    st.session_state.chart_data = []
+                
+                chart_info = {
                     'type': 'scatter',
                     'data': plot_data,
                     'x_column': x_column,
@@ -648,6 +653,7 @@ class CreateScatterPlotTool(BaseTool):
                     'title': chart_title,
                     'correlation': correlation
                 }
+                st.session_state.chart_data.append(chart_info)
             
             result += "\nChart data prepared for display. 📈"
             return result
@@ -718,14 +724,16 @@ class CreateLineChartTool(BaseTool):
             import streamlit as st
             if hasattr(st, 'session_state'):
                 if 'chart_data' not in st.session_state:
-                    st.session_state.chart_data = {}
-                st.session_state.chart_data['line_chart'] = {
+                    st.session_state.chart_data = []
+                
+                chart_info = {
                     'type': 'line',
                     'data': plot_data,
                     'x_column': x_column,
                     'y_column': y_column,
                     'title': chart_title
                 }
+                st.session_state.chart_data.append(chart_info)
             
             result += "\nChart data prepared for display. 📈"
             return result

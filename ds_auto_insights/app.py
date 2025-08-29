@@ -34,7 +34,7 @@ if "chat_history" not in st.session_state:
     st.session_state.chat_history = []  # [{"role": "user"/"assistant", "content": "..."}]
 
 if "chart_data" not in st.session_state:
-    st.session_state.chart_data = {}
+    st.session_state.chart_data = []
 
 # ---------- File Uploader ----------
 uploaded_file = st.file_uploader("Upload your dataset (CSV/XLSX)", type=["csv", "xlsx", "xls"])
@@ -108,7 +108,15 @@ with tab1:
 
             # Display charts if any were created
             if hasattr(st.session_state, 'chart_data') and st.session_state.chart_data:
-                for chart_name, chart_info in st.session_state.chart_data.items():
+                
+                # Add a clear charts button
+                col1, col2 = st.columns([1, 4])
+                with col1:
+                    if st.button("🗑️ Clear Charts"):
+                        st.session_state.chart_data = []
+                        st.rerun()
+                
+                for i, chart_info in enumerate(st.session_state.chart_data):
                     chart_type = chart_info.get('type')
                     data = chart_info.get('data')
                     title = chart_info.get('title', 'Chart')
@@ -154,8 +162,7 @@ with tab1:
                             use_container_width=True
                         )
                 
-                # Clear chart data after displaying
-                st.session_state.chart_data = {}
+                # Don't clear chart data - let them accumulate
 
             # Optional: show intermediate steps
             if isinstance(result, dict) and result.get("intermediate_steps"):
