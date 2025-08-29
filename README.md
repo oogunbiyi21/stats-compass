@@ -4,7 +4,7 @@ A PM-first, chat-native data analysis tool that empowers product managers and le
 
 ## 🎯 Problem Statement
 
-Non-technical PMs and lean teams struggle to turn raw CSVs/tables into decisions quickly. Existing BI tools (Power BI/Tableau) are great at dashboards but require modeling and setup; chat-first "AI BI" tools often hallucinate or can't actually operate on the data.
+Non-technical PMs and lean teams struggle to turn raw data into decisions quickly. Existing BI tools (Power BI/Tableau) are great at dashboards but require modeling and setup; chat-first "AI BI" tools often hallucinate or can't actually operate on the data.
 
 ## ✨ Solution
 
