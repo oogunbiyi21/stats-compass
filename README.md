@@ -9,7 +9,7 @@ Non-technical PMs and lean teams struggle to turn raw CSVs/tables into decisions
 ## ✨ Solution
 
 DS Auto Insights provides:
-- 📁 **Easy data ingestion** - Upload CSV/XLSX files with robust parsing
+- 📁 **Easy data ingestion** - Upload CSV/XLSX files with parsing
 - 💬 **Natural language queries** - Ask questions about your data in plain English
 - 🔒 **Safe computations** - All insights come from real operations on your dataframe (no hallucinations)
 - 📊 **Interactive dashboards** - Get visualizations and summaries automatically
@@ -17,17 +17,17 @@ DS Auto Insights provides:
 
 ## 🏗️ Architecture
 
-- **Frontend**: Streamlit for rapid full-stack development
+- **Frontend**: Streamlit
 - **AI Agent**: LangChain + OpenAI (GPT-4o) with tool-calling capabilities
 - **Safety Layer**: Whitelisted pandas operations only
-- **Data Handling**: Robust CSV/XLSX parsing with pandas
+- **Data Handling**: CSV/XLSX parsing with pandas
 - **Tools**: `RunPandasQueryTool` for safe, read-only dataframe operations
 
 ## 🚀 Getting Started
 
 ### Prerequisites
 - Python 3.11+
-- Poetry (for dependency management)
+- Poetry
 - OpenAI API key
 
 ### Installation
@@ -61,11 +61,9 @@ poetry run streamlit run ds_auto_insights/app.py
 - ✅ **Data Summary**: Automatic dataset overview with missing values and descriptive statistics
 - ✅ **Exploration**: Correlation matrices and suggested visualizations
 - ✅ **Chat Interface**: Natural language queries with real pandas computations
-- ✅ **Safe Operations**: Whitelisted pandas functions (no arbitrary code execution)
+- ✅ **Safe Operations**: Whitelisted pandas functions
 
 ### Coming Soon
-- 🔄 **Enhanced Tools**: groupby, histogram, top categories, correlation analysis
-- 📈 **Chart Rendering**: Consistent visualization pipeline
 - 💾 **Export/Narrative**: One-click Markdown reports from chat results
 - 🔌 **SQL Connectors**: Direct database connections
 - 🎯 **Context Slotting**: Persistent business context for better analysis
