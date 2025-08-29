@@ -104,7 +104,7 @@ This project is in active development. Feel free to:
 
 ## 📝 License
 
-mit license
+MIT license
 
 ## 🔗 Links
 
