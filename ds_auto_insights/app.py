@@ -107,6 +107,13 @@ if uploaded_file is not None:
         mem_mb = df.memory_usage(deep=True).sum() / (1024**2)
         st.caption(f"Approx. memory usage: {mem_mb:.2f} MB")
 
+        # Show what the AI knows about this dataset
+        with st.expander("🧠 What the AI knows about your dataset", expanded=False):
+            from planner_mcp import generate_dataset_context
+            context = generate_dataset_context(df)
+            st.code(context.strip(), language=None)
+            st.info("💡 The AI assistant has immediate knowledge of all these columns and can suggest analysis without needing to explore first!")
+
         with st.expander("Columns & dtypes"):
             info = pd.DataFrame({
                 "column": df.columns,
