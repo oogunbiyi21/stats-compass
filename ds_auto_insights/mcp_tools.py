@@ -94,7 +94,7 @@ class RunPandasQueryTool(BaseTool):
         self._df = df
 
     def _is_safe_expression(self, query: str) -> bool:
-        # Disallow dangerous keywords
+        # Disallow dangerous keywords and assignment operations
         banned_patterns: list[str] = [
             r"__.*?__",          # dunder methods
             r"\bimport\b",       # import statements
@@ -107,23 +107,40 @@ class RunPandasQueryTool(BaseTool):
             r"\bglobals\(\)",    # globals access
             r"\blocals\(\)",     # locals access
             r"\bdel\b",          # del statement
+            r"=(?!=)",           # assignment operators (but not equality ==)
+            r"\+=",              # augmented assignment
+            r"-=",               # augmented assignment  
+            r"\*=",              # augmented assignment
+            r"/=",               # augmented assignment
         ]
         return not any(re.search(pattern, query) for pattern in banned_patterns)
 
     def _run(self, query: str) -> str:
         if not self._is_safe_expression(query):
-            return "❌ Unsafe query detected. Only simple pandas expressions are allowed."
+            # Provide specific guidance for common issues
+            if "=" in query and "==" not in query:
+                return "❌ Assignment operations are not allowed. This tool is for read-only data exploration. " \
+                       "If you need to create a derived column (like opponent), use groupby_aggregate or top_categories tools instead."
+            else:
+                return "❌ Unsafe query detected. Only simple pandas expressions are allowed."
 
         try:
-            # Set pandas display options to show all columns
-            with pd.option_context('display.max_columns', None, 
+            # Set pandas display options to show columns (but limit for safety)
+            max_cols = 100 if len(self._df.columns) <= 100 else 50
+            with pd.option_context('display.max_columns', max_cols, 
                                    'display.width', None, 
                                    'display.max_colwidth', 50):
                 local_vars: dict = {"df": self._df}
                 result = eval(query, {}, local_vars)
                 return str(result)
         except Exception as e:
-            return f"❌ Error running query: {e}"
+            error_msg = str(e)
+            if "invalid syntax" in error_msg.lower():
+                return f"❌ Syntax error: The query contains invalid Python syntax. " \
+                       f"Please use simple pandas expressions like df['column'].unique() or df.describe(). " \
+                       f"Error details: {error_msg}"
+            else:
+                return f"❌ Error running query: {error_msg}"
 
 # Tool: Explain a result
 class NarrativeExplainInput(BaseModel):
@@ -144,12 +161,12 @@ class NarrativeExplainTool(BaseTool):
 
 # Tool: Get comprehensive dataset preview
 class DatasetPreviewInput(BaseModel):
-    num_rows: int = Field(default=5, description="Number of rows to show")
+    num_rows: int = Field(default=5, description="Number of rows to show (max 20)")
 
 
 class DatasetPreviewTool(BaseTool):
     name: str = "dataset_preview"
-    description: str = "Get a comprehensive preview of the dataset showing ALL columns (no truncation)."
+    description: str = "Get a comprehensive preview of the dataset showing ALL columns (no truncation). Limited to 100 columns for safety."
     args_schema: Type[BaseModel] = DatasetPreviewInput
 
     _df: pd.DataFrame = PrivateAttr()
@@ -160,15 +177,34 @@ class DatasetPreviewTool(BaseTool):
 
     def _run(self, num_rows: int = 5) -> str:
         try:
-            # Set pandas display options to show all columns
-            with pd.option_context('display.max_columns', None, 
+            # Safety limits
+            if num_rows > 20:
+                num_rows = 20
+                
+            num_cols = len(self._df.columns)
+            if num_cols > 100:
+                return f"❌ Dataset has too many columns ({num_cols}). Maximum supported: 100 columns for preview."
+            
+            # Set pandas display options to show columns (safe limits)
+            max_cols = min(100, num_cols)
+            with pd.option_context('display.max_columns', max_cols, 
                                    'display.width', None, 
                                    'display.max_colwidth', 50):
                 preview = self._df.head(num_rows)
                 
-                result_lines = [f"📊 Dataset Preview ({len(self._df)} total rows, {len(self._df.columns)} columns):"]
-                result_lines.append(f"Columns: {list(self._df.columns)}")
-                result_lines.append("\nFirst {num_rows} rows:")
+                result_lines = [f"📊 Dataset Preview ({len(self._df)} total rows, {num_cols} columns):"]
+                
+                # Show column list (but limit if too many)
+                if num_cols <= 20:
+                    result_lines.append(f"Columns: {list(self._df.columns)}")
+                else:
+                    first_10 = list(self._df.columns[:10])
+                    last_10 = list(self._df.columns[-10:])
+                    result_lines.append(f"Columns (first 10): {first_10}")
+                    result_lines.append(f"Columns (last 10): {last_10}")
+                    result_lines.append(f"... and {num_cols - 20} more columns")
+                
+                result_lines.append(f"\nFirst {num_rows} rows:")
                 result_lines.append(str(preview))
                 
                 return "\n".join(result_lines)
@@ -394,4 +430,401 @@ class CorrelationMatrixTool(BaseTool):
             return f"❌ Error calculating correlation: {e}"
 
     def _arun(self, columns: list = None, method: str = "pearson"):
+        raise NotImplementedError("Async not supported")
+
+
+# Tool: Create Histogram Chart
+class CreateHistogramChartInput(BaseModel):
+    column: str = Field(description="Column name to create histogram for")
+    bins: int = Field(default=30, description="Number of bins for the histogram")
+    title: str = Field(default="", description="Custom title for the chart")
+
+
+class CreateHistogramChartTool(BaseTool):
+    name: str = "create_histogram_chart"
+    description: str = "Creates a histogram chart for a numeric column and returns chart data for display."
+    args_schema: Type[BaseModel] = CreateHistogramChartInput
+
+    _df: pd.DataFrame = PrivateAttr()
+
+    def __init__(self, df: pd.DataFrame):
+        super().__init__()
+        self._df = df
+
+    def _run(self, column: str, bins: int = 30, title: str = "") -> str:
+        try:
+            if column not in self._df.columns:
+                return f"❌ Column '{column}' not found. Available columns: {list(self._df.columns)}"
+
+            col_data = self._df[column].dropna()
+            
+            if not pd.api.types.is_numeric_dtype(col_data):
+                return f"❌ Column '{column}' is not numeric. Use bar chart for categorical data."
+
+            if len(col_data) == 0:
+                return f"❌ No non-null data found in column '{column}'"
+
+            # Create histogram data
+            counts, bin_edges = pd.cut(col_data, bins=bins, retbins=True)
+            hist_data = counts.value_counts().sort_index()
+
+            # Prepare chart data for Streamlit
+            chart_data = pd.DataFrame({
+                'bin_range': [f"{edge:.2f}-{bin_edges[i+1]:.2f}" for i, edge in enumerate(bin_edges[:-1])],
+                'count': [hist_data.get(interval, 0) for interval in hist_data.index]
+            })
+
+            chart_title = title or f"Distribution of {column}"
+            
+            result = f"📊 {chart_title}\n\n"
+            result += f"Statistics:\n"
+            result += f"  • Mean: {col_data.mean():.2f}\n"
+            result += f"  • Median: {col_data.median():.2f}\n"
+            result += f"  • Std Dev: {col_data.std():.2f}\n"
+            result += f"  • Range: {col_data.min():.2f} to {col_data.max():.2f}\n\n"
+            
+            # Store chart data for Streamlit rendering
+            import streamlit as st
+            if hasattr(st, 'session_state'):
+                if 'chart_data' not in st.session_state:
+                    st.session_state.chart_data = {}
+                st.session_state.chart_data['histogram'] = {
+                    'type': 'histogram',
+                    'data': chart_data,
+                    'column': column,
+                    'title': chart_title
+                }
+            
+            result += "Chart data prepared for display. 📈"
+            return result
+
+        except Exception as e:
+            return f"❌ Error creating histogram: {e}"
+
+    def _arun(self, column: str, bins: int = 30, title: str = ""):
+        raise NotImplementedError("Async not supported")
+
+
+# Tool: Create Bar Chart
+class CreateBarChartInput(BaseModel):
+    column: str = Field(description="Column name to create bar chart for")
+    top_n: int = Field(default=10, description="Number of top categories to show")
+    title: str = Field(default="", description="Custom title for the chart")
+
+
+class CreateBarChartTool(BaseTool):
+    name: str = "create_bar_chart"
+    description: str = "Creates a bar chart for categorical data showing top categories by count."
+    args_schema: Type[BaseModel] = CreateBarChartInput
+
+    _df: pd.DataFrame = PrivateAttr()
+
+    def __init__(self, df: pd.DataFrame):
+        super().__init__()
+        self._df = df
+
+    def _run(self, column: str, top_n: int = 10, title: str = "") -> str:
+        try:
+            if column not in self._df.columns:
+                return f"❌ Column '{column}' not found. Available columns: {list(self._df.columns)}"
+
+            value_counts = self._df[column].value_counts().head(top_n)
+            
+            if len(value_counts) == 0:
+                return f"❌ No data found in column '{column}'"
+
+            # Create chart data
+            chart_data = pd.DataFrame({
+                'category': value_counts.index.astype(str),
+                'count': value_counts.values
+            })
+
+            chart_title = title or f"Top {top_n} {column} by Count"
+            
+            result = f"📊 {chart_title}\n\n"
+            result += f"Total unique values: {self._df[column].nunique()}\n"
+            result += f"Showing top {len(value_counts)} categories:\n\n"
+            
+            for i, (cat, count) in enumerate(value_counts.items(), 1):
+                percentage = (count / len(self._df)) * 100
+                result += f"  {i}. {cat}: {count} ({percentage:.1f}%)\n"
+            
+            # Store chart data for Streamlit rendering
+            import streamlit as st
+            if hasattr(st, 'session_state'):
+                if 'chart_data' not in st.session_state:
+                    st.session_state.chart_data = {}
+                st.session_state.chart_data['bar_chart'] = {
+                    'type': 'bar',
+                    'data': chart_data,
+                    'column': column,
+                    'title': chart_title
+                }
+            
+            result += "\nChart data prepared for display. 📈"
+            return result
+
+        except Exception as e:
+            return f"❌ Error creating bar chart: {e}"
+
+    def _arun(self, column: str, top_n: int = 10, title: str = ""):
+        raise NotImplementedError("Async not supported")
+
+
+# Tool: Create Scatter Plot
+class CreateScatterPlotInput(BaseModel):
+    x_column: str = Field(description="Column name for x-axis")
+    y_column: str = Field(description="Column name for y-axis")
+    color_column: str = Field(default="", description="Optional column for color coding")
+    title: str = Field(default="", description="Custom title for the chart")
+
+
+class CreateScatterPlotTool(BaseTool):
+    name: str = "create_scatter_plot"
+    description: str = "Creates a scatter plot to show relationship between two numeric columns."
+    args_schema: Type[BaseModel] = CreateScatterPlotInput
+
+    _df: pd.DataFrame = PrivateAttr()
+
+    def __init__(self, df: pd.DataFrame):
+        super().__init__()
+        self._df = df
+
+    def _run(self, x_column: str, y_column: str, color_column: str = "", title: str = "") -> str:
+        try:
+            # Validate columns
+            if x_column not in self._df.columns:
+                return f"❌ X column '{x_column}' not found. Available columns: {list(self._df.columns)}"
+            if y_column not in self._df.columns:
+                return f"❌ Y column '{y_column}' not found. Available columns: {list(self._df.columns)}"
+            
+            if color_column and color_column not in self._df.columns:
+                return f"❌ Color column '{color_column}' not found. Available columns: {list(self._df.columns)}"
+
+            # Check if columns are numeric
+            if not pd.api.types.is_numeric_dtype(self._df[x_column]):
+                return f"❌ X column '{x_column}' must be numeric"
+            if not pd.api.types.is_numeric_dtype(self._df[y_column]):
+                return f"❌ Y column '{y_column}' must be numeric"
+
+            # Prepare data
+            plot_data = self._df[[x_column, y_column]].dropna()
+            if color_column:
+                plot_data = self._df[[x_column, y_column, color_column]].dropna()
+            
+            if len(plot_data) == 0:
+                return f"❌ No complete data pairs found for {x_column} and {y_column}"
+
+            chart_title = title or f"{y_column} vs {x_column}"
+            
+            # Calculate correlation
+            correlation = plot_data[x_column].corr(plot_data[y_column])
+            
+            result = f"📊 {chart_title}\n\n"
+            result += f"Data points: {len(plot_data)}\n"
+            result += f"Correlation: {correlation:.3f}\n"
+            
+            if abs(correlation) > 0.7:
+                result += "🔍 Strong correlation detected!\n"
+            elif abs(correlation) > 0.3:
+                result += "📈 Moderate correlation detected.\n"
+            else:
+                result += "📊 Weak correlation.\n"
+            
+            result += f"\n{x_column} range: {plot_data[x_column].min():.2f} to {plot_data[x_column].max():.2f}\n"
+            result += f"{y_column} range: {plot_data[y_column].min():.2f} to {plot_data[y_column].max():.2f}\n"
+
+            # Store chart data for Streamlit rendering
+            import streamlit as st
+            if hasattr(st, 'session_state'):
+                if 'chart_data' not in st.session_state:
+                    st.session_state.chart_data = {}
+                st.session_state.chart_data['scatter_plot'] = {
+                    'type': 'scatter',
+                    'data': plot_data,
+                    'x_column': x_column,
+                    'y_column': y_column,
+                    'color_column': color_column if color_column else None,
+                    'title': chart_title,
+                    'correlation': correlation
+                }
+            
+            result += "\nChart data prepared for display. 📈"
+            return result
+
+        except Exception as e:
+            return f"❌ Error creating scatter plot: {e}"
+
+    def _arun(self, x_column: str, y_column: str, color_column: str = "", title: str = ""):
+        raise NotImplementedError("Async not supported")
+
+
+# Tool: Create Line Chart
+class CreateLineChartInput(BaseModel):
+    x_column: str = Field(description="Column name for x-axis (typically time/date)")
+    y_column: str = Field(description="Column name for y-axis")
+    title: str = Field(default="", description="Custom title for the chart")
+
+
+class CreateLineChartTool(BaseTool):
+    name: str = "create_line_chart"
+    description: str = "Creates a line chart to show trends over time or ordered data."
+    args_schema: Type[BaseModel] = CreateLineChartInput
+
+    _df: pd.DataFrame = PrivateAttr()
+
+    def __init__(self, df: pd.DataFrame):
+        super().__init__()
+        self._df = df
+
+    def _run(self, x_column: str, y_column: str, title: str = "") -> str:
+        try:
+            # Validate columns
+            if x_column not in self._df.columns:
+                return f"❌ X column '{x_column}' not found. Available columns: {list(self._df.columns)}"
+            if y_column not in self._df.columns:
+                return f"❌ Y column '{y_column}' not found. Available columns: {list(self._df.columns)}"
+
+            # Check if y column is numeric
+            if not pd.api.types.is_numeric_dtype(self._df[y_column]):
+                return f"❌ Y column '{y_column}' must be numeric"
+
+            # Prepare data
+            plot_data = self._df[[x_column, y_column]].dropna().sort_values(x_column)
+            
+            if len(plot_data) == 0:
+                return f"❌ No complete data found for {x_column} and {y_column}"
+
+            chart_title = title or f"{y_column} over {x_column}"
+            
+            result = f"📊 {chart_title}\n\n"
+            result += f"Data points: {len(plot_data)}\n"
+            result += f"{y_column} range: {plot_data[y_column].min():.2f} to {plot_data[y_column].max():.2f}\n"
+            
+            # Calculate trend
+            if len(plot_data) > 1:
+                first_val = plot_data[y_column].iloc[0]
+                last_val = plot_data[y_column].iloc[-1]
+                change = ((last_val - first_val) / first_val * 100) if first_val != 0 else 0
+                
+                if change > 5:
+                    result += f"📈 Upward trend: +{change:.1f}%\n"
+                elif change < -5:
+                    result += f"📉 Downward trend: {change:.1f}%\n"
+                else:
+                    result += f"➡️ Relatively stable: {change:.1f}%\n"
+
+            # Store chart data for Streamlit rendering
+            import streamlit as st
+            if hasattr(st, 'session_state'):
+                if 'chart_data' not in st.session_state:
+                    st.session_state.chart_data = {}
+                st.session_state.chart_data['line_chart'] = {
+                    'type': 'line',
+                    'data': plot_data,
+                    'x_column': x_column,
+                    'y_column': y_column,
+                    'title': chart_title
+                }
+            
+            result += "\nChart data prepared for display. 📈"
+            return result
+
+        except Exception as e:
+            return f"❌ Error creating line chart: {e}"
+
+    def _arun(self, x_column: str, y_column: str, title: str = ""):
+        raise NotImplementedError("Async not supported")
+
+
+# Tool: Create New Column
+class CreateColumnInput(BaseModel):
+    column_name: str = Field(description="Name of the new column to create")
+    operation: str = Field(description="The pandas operation to create the column. Examples: 'df[\"goals\"] * 2', 'df[\"goals\"].apply(lambda x: \"High\" if x > 10 else \"Low\")', 'df[\"h_team\"] + \" vs \" + df[\"a_team\"]'")
+    description: str = Field(default="", description="Description of what this column represents")
+
+
+class CreateColumnTool(BaseTool):
+    name: str = "create_column"
+    description: str = """Create a new column in the dataset using pandas operations.
+    This tool allows you to add calculated columns, conditional columns, or transform existing data.
+    Use this for complex data transformations that require creating new variables."""
+    args_schema: Type[BaseModel] = CreateColumnInput
+    
+    _df: pd.DataFrame = PrivateAttr()
+    
+    def __init__(self, df: pd.DataFrame):
+        super().__init__()
+        self._df = df
+    
+    def _run(self, column_name: str, operation: str, description: str = "") -> str:
+        try:
+            import streamlit as st
+            import numpy as np
+            import pandas as pd
+            
+            # Safety checks
+            if column_name in self._df.columns:
+                return f"❌ Column '{column_name}' already exists. Choose a different name or use a different operation."
+            
+            # Check for dangerous operations
+            dangerous_keywords = ['import', 'exec', 'eval', '__', 'open', 'file', 'system', 'os.', 'subprocess', 'globals', 'locals']
+            if any(keyword in operation.lower() for keyword in dangerous_keywords):
+                return f"❌ Operation contains potentially dangerous keywords. Please use only pandas operations."
+            
+            # Ensure operation is a valid pandas expression
+            if not (operation.strip().startswith('df[') or operation.strip().startswith('df.') or 
+                   any(func in operation for func in ['np.', 'pd.', 'lambda', '"', "'"])):
+                return f"❌ Operation must start with 'df[' or 'df.' or use allowed functions (np., pd., lambda). Got: {operation}"
+            
+            # Create a safe namespace for evaluation
+            safe_dict = {
+                'df': self._df,
+                'pd': pd,
+                'np': np,
+                '__builtins__': {'len': len, 'str': str, 'int': int, 'float': float, 'bool': bool, 'max': max, 'min': min}
+            }
+            
+            # Execute the operation
+            try:
+                result = eval(operation, safe_dict)
+                
+                # Validate result is appropriate for a column
+                if hasattr(result, '__len__') and len(result) != len(self._df):
+                    return f"❌ Operation result length ({len(result)}) doesn't match dataframe length ({len(self._df)})"
+                
+                # Add the new column
+                self._df[column_name] = result
+                
+                # Update the dataframe in session state if available
+                if hasattr(st, 'session_state') and 'uploaded_df' in st.session_state:
+                    st.session_state.uploaded_df = self._df
+                
+                # Show preview of new column
+                preview = self._df[[column_name]].head(10)
+                
+                success_msg = f"✅ Created column '{column_name}'"
+                if description:
+                    success_msg += f" - {description}"
+                
+                success_msg += f"\n\nPreview of new column (first 10 rows):\n{preview.to_string()}"
+                
+                # Show basic stats if numeric
+                if pd.api.types.is_numeric_dtype(self._df[column_name]):
+                    stats = self._df[column_name].describe()
+                    success_msg += f"\n\nColumn statistics:\n{stats.to_string()}"
+                else:
+                    # Show value counts for categorical
+                    value_counts = self._df[column_name].value_counts().head(5)
+                    success_msg += f"\n\nTop 5 values:\n{value_counts.to_string()}"
+                
+                return success_msg
+                
+            except Exception as eval_error:
+                return f"❌ Error executing operation: {str(eval_error)}. Please check your pandas syntax."
+            
+        except Exception as e:
+            return f"❌ Error creating column: {str(e)}"
+    
+    def _arun(self, column_name: str, operation: str, description: str = ""):
         raise NotImplementedError("Async not supported")

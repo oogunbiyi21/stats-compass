@@ -33,6 +33,9 @@ if "chat_history" not in st.session_state:
     # store as simple dict messages for Streamlit chat
     st.session_state.chat_history = []  # [{"role": "user"/"assistant", "content": "..."}]
 
+if "chart_data" not in st.session_state:
+    st.session_state.chart_data = {}
+
 # ---------- File Uploader ----------
 uploaded_file = st.file_uploader("Upload your dataset (CSV/XLSX)", type=["csv", "xlsx", "xls"])
 
@@ -102,6 +105,57 @@ with tab1:
             # Replace "thinking" with the actual answer
             placeholder.empty()
             st.markdown(final_text)
+
+            # Display charts if any were created
+            if hasattr(st.session_state, 'chart_data') and st.session_state.chart_data:
+                for chart_name, chart_info in st.session_state.chart_data.items():
+                    chart_type = chart_info.get('type')
+                    data = chart_info.get('data')
+                    title = chart_info.get('title', 'Chart')
+                    
+                    if chart_type == 'histogram':
+                        st.subheader(f"📊 {title}")
+                        st.bar_chart(data.set_index('bin_range')['count'], use_container_width=True)
+                        
+                    elif chart_type == 'bar':
+                        st.subheader(f"📊 {title}")
+                        st.bar_chart(data.set_index('category')['count'], use_container_width=True)
+                        
+                    elif chart_type == 'scatter':
+                        st.subheader(f"📊 {title}")
+                        if chart_info.get('color_column'):
+                            st.scatter_chart(
+                                data, 
+                                x=chart_info['x_column'], 
+                                y=chart_info['y_column'],
+                                color=chart_info['color_column'],
+                                use_container_width=True
+                            )
+                        else:
+                            st.scatter_chart(
+                                data, 
+                                x=chart_info['x_column'], 
+                                y=chart_info['y_column'],
+                                use_container_width=True
+                            )
+                        # Show correlation info
+                        corr = chart_info.get('correlation', 0)
+                        if abs(corr) > 0.7:
+                            st.success(f"🔍 Strong correlation: {corr:.3f}")
+                        elif abs(corr) > 0.3:
+                            st.info(f"📈 Moderate correlation: {corr:.3f}")
+                        else:
+                            st.caption(f"📊 Weak correlation: {corr:.3f}")
+                            
+                    elif chart_type == 'line':
+                        st.subheader(f"📊 {title}")
+                        st.line_chart(
+                            data.set_index(chart_info['x_column'])[chart_info['y_column']], 
+                            use_container_width=True
+                        )
+                
+                # Clear chart data after displaying
+                st.session_state.chart_data = {}
 
             # Optional: show intermediate steps
             if isinstance(result, dict) and result.get("intermediate_steps"):
