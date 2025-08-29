@@ -13,6 +13,54 @@ from util import (
 )
 from planner_mcp import run_mcp_planner
 
+
+def display_single_chart(chart_info):
+    """Display a single chart based on chart_info dictionary"""
+    chart_type = chart_info.get('type')
+    data = chart_info.get('data')
+    title = chart_info.get('title', 'Chart')
+    
+    if chart_type == 'histogram':
+        st.subheader(f"📊 {title}")
+        st.bar_chart(data.set_index('bin_range')['count'], use_container_width=True)
+        
+    elif chart_type == 'bar':
+        st.subheader(f"📊 {title}")
+        st.bar_chart(data.set_index('category')['count'], use_container_width=True)
+        
+    elif chart_type == 'scatter':
+        st.subheader(f"📊 {title}")
+        if chart_info.get('color_column'):
+            st.scatter_chart(
+                data, 
+                x=chart_info['x_column'], 
+                y=chart_info['y_column'],
+                color=chart_info['color_column'],
+                use_container_width=True
+            )
+        else:
+            st.scatter_chart(
+                data, 
+                x=chart_info['x_column'], 
+                y=chart_info['y_column'],
+                use_container_width=True
+            )
+        # Show correlation info
+        corr = chart_info.get('correlation', 0)
+        if abs(corr) > 0.7:
+            st.success(f"🔍 Strong correlation: {corr:.3f}")
+        elif abs(corr) > 0.3:
+            st.info(f"📈 Moderate correlation: {corr:.3f}")
+        else:
+            st.caption(f"📊 Weak correlation: {corr:.3f}")
+            
+    elif chart_type == 'line':
+        st.subheader(f"📊 {title}")
+        st.line_chart(
+            data.set_index(chart_info['x_column'])[chart_info['y_column']], 
+            use_container_width=True
+        )
+
 # ---------- Setup ----------
 load_dotenv()
 st.set_page_config(page_title="DS Auto Insights", layout="wide")
@@ -35,6 +83,8 @@ if "chat_history" not in st.session_state:
 
 if "chart_data" not in st.session_state:
     st.session_state.chart_data = []
+if "current_response_charts" not in st.session_state:
+    st.session_state.current_response_charts = []
 
 # ---------- File Uploader ----------
 uploaded_file = st.file_uploader("Upload your dataset (CSV/XLSX)", type=["csv", "xlsx", "xls"])
@@ -73,13 +123,21 @@ with tab1:
     st.header("Chat (tool-calling)")
 
     # 1) Replay existing chat history first (before processing new message)
-    for msg in st.session_state.chat_history:
+    for i, msg in enumerate(st.session_state.chat_history):
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
+            
+            # Display charts that were created with this message
+            if msg["role"] == "assistant" and "charts" in msg:
+                for chart_info in msg["charts"]:
+                    display_single_chart(chart_info)
 
     # 2) If we have a message queued from the previous run, process it
     queued = st.session_state.pop("to_process", None)
     if queued is not None and st.session_state.df is not None:
+        # Clear current response charts to start fresh
+        st.session_state.current_response_charts = []
+        
         # Show the user's message
         with st.chat_message("user"):
             st.markdown(queued)
@@ -106,63 +164,15 @@ with tab1:
             placeholder.empty()
             st.markdown(final_text)
 
-            # Display charts if any were created
-            if hasattr(st.session_state, 'chart_data') and st.session_state.chart_data:
+            # Display any charts that were created during this response
+            current_charts = []
+            if hasattr(st.session_state, 'current_response_charts') and st.session_state.current_response_charts:
+                for chart_info in st.session_state.current_response_charts:
+                    display_single_chart(chart_info)
+                    current_charts.append(chart_info)
                 
-                # Add a clear charts button
-                col1, col2 = st.columns([1, 4])
-                with col1:
-                    if st.button("🗑️ Clear Charts"):
-                        st.session_state.chart_data = []
-                        st.rerun()
-                
-                for i, chart_info in enumerate(st.session_state.chart_data):
-                    chart_type = chart_info.get('type')
-                    data = chart_info.get('data')
-                    title = chart_info.get('title', 'Chart')
-                    
-                    if chart_type == 'histogram':
-                        st.subheader(f"📊 {title}")
-                        st.bar_chart(data.set_index('bin_range')['count'], use_container_width=True)
-                        
-                    elif chart_type == 'bar':
-                        st.subheader(f"📊 {title}")
-                        st.bar_chart(data.set_index('category')['count'], use_container_width=True)
-                        
-                    elif chart_type == 'scatter':
-                        st.subheader(f"📊 {title}")
-                        if chart_info.get('color_column'):
-                            st.scatter_chart(
-                                data, 
-                                x=chart_info['x_column'], 
-                                y=chart_info['y_column'],
-                                color=chart_info['color_column'],
-                                use_container_width=True
-                            )
-                        else:
-                            st.scatter_chart(
-                                data, 
-                                x=chart_info['x_column'], 
-                                y=chart_info['y_column'],
-                                use_container_width=True
-                            )
-                        # Show correlation info
-                        corr = chart_info.get('correlation', 0)
-                        if abs(corr) > 0.7:
-                            st.success(f"🔍 Strong correlation: {corr:.3f}")
-                        elif abs(corr) > 0.3:
-                            st.info(f"📈 Moderate correlation: {corr:.3f}")
-                        else:
-                            st.caption(f"📊 Weak correlation: {corr:.3f}")
-                            
-                    elif chart_type == 'line':
-                        st.subheader(f"📊 {title}")
-                        st.line_chart(
-                            data.set_index(chart_info['x_column'])[chart_info['y_column']], 
-                            use_container_width=True
-                        )
-                
-                # Don't clear chart data - let them accumulate
+                # Clear the current response charts since they're now displayed
+                st.session_state.current_response_charts = []
 
             # Optional: show intermediate steps
             if isinstance(result, dict) and result.get("intermediate_steps"):
@@ -176,8 +186,11 @@ with tab1:
                         except Exception:
                             st.text(str(step))
 
-        # Persist assistant reply
-        st.session_state.chat_history.append({"role": "assistant", "content": final_text})
+        # Persist assistant reply with any charts that were created
+        assistant_message = {"role": "assistant", "content": final_text}
+        if current_charts:
+            assistant_message["charts"] = current_charts
+        st.session_state.chat_history.append(assistant_message)
 
     # 3) Place the chat input at the END. When user submits, queue it + rerun.
     user_query = st.chat_input("Ask a question about your data", key="chat_input_bottom")
