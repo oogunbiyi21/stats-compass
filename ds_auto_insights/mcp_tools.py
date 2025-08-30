@@ -836,3 +836,348 @@ class CreateColumnTool(BaseTool):
     
     def _arun(self, column_name: str, operation: str, description: str = ""):
         raise NotImplementedError("Async not supported")
+
+
+# Time Series Analysis Tool
+class TimeSeriesAnalysisInput(BaseModel):
+    date_column: str = Field(description="Name of the date/time column")
+    value_column: str = Field(description="Name of the numeric column to analyze over time")
+    freq: str = Field(default="D", description="Frequency for resampling (D=daily, W=weekly, M=monthly, Q=quarterly, Y=yearly)")
+    agg_method: str = Field(default="mean", description="Aggregation method (mean, sum, count, min, max)")
+
+
+class TimeSeriesAnalysisTool(BaseTool):
+    name: str = "time_series_analysis"
+    description: str = "Analyze trends and patterns in time series data. Automatically handles date parsing and resampling."
+    args_schema: Type[BaseModel] = TimeSeriesAnalysisInput
+
+    _df: pd.DataFrame = PrivateAttr()
+
+    def __init__(self, df: pd.DataFrame):
+        super().__init__()
+        self._df = df
+
+    def _run(self, date_column: str, value_column: str, freq: str = "D", agg_method: str = "mean") -> str:
+        try:
+            import streamlit as st
+            
+            # Validate columns exist
+            if date_column not in self._df.columns:
+                return f"❌ Date column '{date_column}' not found. Available columns: {list(self._df.columns)}"
+            
+            if value_column not in self._df.columns:
+                return f"❌ Value column '{value_column}' not found. Available columns: {list(self._df.columns)}"
+            
+            # Create a copy for time series analysis
+            ts_df = self._df[[date_column, value_column]].copy()
+            
+            # Convert date column to datetime
+            ts_df[date_column] = pd.to_datetime(ts_df[date_column], errors='coerce')
+            
+            # Drop rows with invalid dates or missing values
+            ts_df = ts_df.dropna()
+            
+            if len(ts_df) == 0:
+                return f"❌ No valid date-value pairs found after cleaning"
+            
+            # Sort by date
+            ts_df = ts_df.sort_values(date_column)
+            
+            # Set date as index for resampling
+            ts_df.set_index(date_column, inplace=True)
+            
+            # Resample based on frequency
+            if agg_method == "mean":
+                resampled = ts_df[value_column].resample(freq).mean()
+            elif agg_method == "sum":
+                resampled = ts_df[value_column].resample(freq).sum()
+            elif agg_method == "count":
+                resampled = ts_df[value_column].resample(freq).count()
+            elif agg_method == "min":
+                resampled = ts_df[value_column].resample(freq).min()
+            elif agg_method == "max":
+                resampled = ts_df[value_column].resample(freq).max()
+            else:
+                return f"❌ Invalid aggregation method '{agg_method}'. Use: mean, sum, count, min, max"
+            
+            # Remove NaN values from resampling
+            resampled = resampled.dropna()
+            
+            if len(resampled) == 0:
+                return f"❌ No data after resampling with frequency '{freq}'"
+            
+            # Calculate basic time series statistics
+            trend_change = resampled.iloc[-1] - resampled.iloc[0] if len(resampled) > 1 else 0
+            trend_pct = (trend_change / resampled.iloc[0] * 100) if resampled.iloc[0] != 0 else 0
+            
+            # Find peaks and troughs
+            max_value = resampled.max()
+            min_value = resampled.min()
+            max_date = resampled.idxmax()
+            min_date = resampled.idxmin()
+            
+            # Store data for chart creation
+            chart_data = pd.DataFrame({
+                'Date': resampled.index,
+                'Value': resampled.values
+            })
+            
+            if hasattr(st, 'session_state'):
+                st.session_state.time_series_chart_data = chart_data
+                st.session_state.time_series_title = f"{value_column} over Time ({agg_method.title()})"
+                st.session_state.time_series_xlabel = "Date"
+                st.session_state.time_series_ylabel = value_column
+            
+            # Summary statistics
+            summary = f"""📈 Time Series Analysis: {value_column} over {date_column}
+
+📊 Data Summary:
+  • Time period: {resampled.index.min().strftime('%Y-%m-%d')} to {resampled.index.max().strftime('%Y-%m-%d')}
+  • Frequency: {freq} ({agg_method})
+  • Data points: {len(resampled)}
+
+📈 Trend Analysis:
+  • Overall change: {trend_change:.2f} ({trend_pct:+.1f}%)
+  • Start value: {resampled.iloc[0]:.2f}
+  • End value: {resampled.iloc[-1]:.2f}
+
+🔍 Key Statistics:
+  • Maximum: {max_value:.2f} on {max_date.strftime('%Y-%m-%d')}
+  • Minimum: {min_value:.2f} on {min_date.strftime('%Y-%m-%d')}
+  • Average: {resampled.mean():.2f}
+  • Standard deviation: {resampled.std():.2f}
+
+Chart data prepared for visualization. Use 'create_time_series_chart' to display the trend line."""
+
+            return summary
+            
+        except Exception as e:
+            return f"❌ Error in time series analysis: {str(e)}"
+
+    def _arun(self, date_column: str, value_column: str, freq: str = "D", agg_method: str = "mean"):
+        raise NotImplementedError("Async not supported")
+
+
+# Create Time Series Chart Tool
+class CreateTimeSeriesChartInput(BaseModel):
+    title: str = Field(default="Time Series Analysis", description="Chart title")
+
+
+class CreateTimeSeriesChartTool(BaseTool):
+    name: str = "create_time_series_chart"
+    description: str = "Create a line chart visualization for time series data. Use after time_series_analysis."
+    args_schema: Type[BaseModel] = CreateTimeSeriesChartInput
+
+    _df: pd.DataFrame = PrivateAttr()
+
+    def __init__(self, df: pd.DataFrame):
+        super().__init__()
+        self._df = df
+
+    def _run(self, title: str = "Time Series Analysis") -> str:
+        try:
+            import streamlit as st
+            import plotly.express as px
+            import plotly.graph_objects as go
+            
+            # Check if time series data is available
+            if not hasattr(st, 'session_state') or 'time_series_chart_data' not in st.session_state:
+                return "❌ No time series data available. Run 'time_series_analysis' first."
+            
+            chart_data = st.session_state.time_series_chart_data
+            
+            if len(chart_data) == 0:
+                return "❌ No data available for charting"
+            
+            # Create interactive line chart
+            fig = px.line(
+                chart_data, 
+                x='Date', 
+                y='Value',
+                title=title
+            )
+            
+            # Enhance the chart
+            fig.update_traces(
+                line=dict(width=3),
+                hovertemplate='<b>Date</b>: %{x}<br><b>Value</b>: %{y:.2f}<extra></extra>'
+            )
+            
+            fig.update_layout(
+                title=dict(x=0.5, font=dict(size=16)),
+                xaxis_title="Date",
+                yaxis_title=st.session_state.get('time_series_ylabel', 'Value'),
+                hovermode='x unified',
+                height=500
+            )
+            
+            # Store chart info for export and persistence
+            chart_info = {
+                'type': 'time_series',
+                'title': title,
+                'data': chart_data,
+                'chart_object': fig,
+                'x_column': 'Date',
+                'y_column': st.session_state.get('time_series_ylabel', 'Value')
+            }
+            
+            # Add to current response charts for persistence
+            if hasattr(st, 'session_state'):
+                if 'current_response_charts' not in st.session_state:
+                    st.session_state.current_response_charts = []
+                st.session_state.current_response_charts.append(chart_info)
+            
+            return f"📈 {title}\n\nTime series chart created with {len(chart_data)} data points. Chart data prepared for display. 📈"
+            
+        except Exception as e:
+            return f"❌ Error creating time series chart: {str(e)}"
+
+    def _arun(self, title: str = "Time Series Analysis"):
+        raise NotImplementedError("Async not supported")
+
+
+# Create Correlation Heatmap Tool
+class CreateCorrelationHeatmapInput(BaseModel):
+    columns: list = Field(default=None, description="List of numeric columns to include. If None, uses all numeric columns.")
+    method: str = Field(default="pearson", description="Correlation method: pearson, kendall, or spearman")
+    title: str = Field(default="Correlation Heatmap", description="Chart title")
+
+
+class CreateCorrelationHeatmapTool(BaseTool):
+    name: str = "create_correlation_heatmap"
+    description: str = "Create a visual correlation heatmap showing relationships between numeric variables."
+    args_schema: Type[BaseModel] = CreateCorrelationHeatmapInput
+
+    _df: pd.DataFrame = PrivateAttr()
+
+    def __init__(self, df: pd.DataFrame):
+        super().__init__()
+        self._df = df
+
+    def _run(self, columns: list = None, method: str = "pearson", title: str = "Correlation Heatmap") -> str:
+        try:
+            import streamlit as st
+            import plotly.express as px
+            import plotly.graph_objects as go
+            import numpy as np
+            
+            # Get numeric columns
+            numeric_cols = self._df.select_dtypes(include=[np.number]).columns.tolist()
+            
+            if len(numeric_cols) < 2:
+                return f"❌ Need at least 2 numeric columns for correlation analysis. Found: {len(numeric_cols)}"
+            
+            # Use specified columns or all numeric columns
+            if columns:
+                # Validate specified columns
+                invalid_cols = [col for col in columns if col not in numeric_cols]
+                if invalid_cols:
+                    return f"❌ Non-numeric or missing columns: {invalid_cols}. Numeric columns: {numeric_cols}"
+                cols_to_use = columns
+            else:
+                cols_to_use = numeric_cols
+            
+            # Calculate correlation matrix
+            corr_data = self._df[cols_to_use]
+            
+            if method == "pearson":
+                corr_matrix = corr_data.corr(method='pearson')
+            elif method == "kendall":
+                corr_matrix = corr_data.corr(method='kendall')
+            elif method == "spearman":
+                corr_matrix = corr_data.corr(method='spearman')
+            else:
+                return f"❌ Invalid correlation method '{method}'. Use: pearson, kendall, or spearman"
+            
+            # Create heatmap
+            fig = px.imshow(
+                corr_matrix,
+                text_auto=True,
+                aspect="auto",
+                title=title,
+                color_continuous_scale='RdBu_r',
+                zmin=-1,
+                zmax=1
+            )
+            
+            # Enhance the heatmap
+            fig.update_traces(
+                texttemplate="%{text:.2f}",
+                textfont_size=10,
+                hovertemplate='<b>%{x}</b> vs <b>%{y}</b><br>Correlation: %{z:.3f}<extra></extra>'
+            )
+            
+            fig.update_layout(
+                title=dict(x=0.5, font=dict(size=16)),
+                height=max(400, len(cols_to_use) * 40),  # Dynamic height based on number of variables
+                width=max(400, len(cols_to_use) * 40)
+            )
+            
+            # Store chart info for export and persistence
+            chart_info = {
+                'type': 'correlation_heatmap',
+                'title': title,
+                'data': corr_matrix.reset_index(),  # Convert to DataFrame for storage
+                'chart_object': fig,
+                'correlation_matrix': corr_matrix.to_dict(),  # Store as dict for JSON serialization
+                'method': method,
+                'columns': cols_to_use
+            }
+            
+            # Add to current response charts for persistence
+            if hasattr(st, 'session_state'):
+                if 'current_response_charts' not in st.session_state:
+                    st.session_state.current_response_charts = []
+                st.session_state.current_response_charts.append(chart_info)
+            
+            # Find strongest correlations
+            # Get upper triangle of correlation matrix (excluding diagonal)
+            mask = np.triu(np.ones_like(corr_matrix, dtype=bool), k=1)
+            corr_pairs = []
+            
+            for i in range(len(corr_matrix.columns)):
+                for j in range(i+1, len(corr_matrix.columns)):
+                    corr_pairs.append({
+                        'var1': corr_matrix.columns[i],
+                        'var2': corr_matrix.columns[j],
+                        'correlation': corr_matrix.iloc[i, j]
+                    })
+            
+            # Sort by absolute correlation
+            corr_pairs.sort(key=lambda x: abs(x['correlation']), reverse=True)
+            
+            # Show top correlations
+            top_correlations = ""
+            for i, pair in enumerate(corr_pairs[:5]):
+                strength = "Very Strong" if abs(pair['correlation']) > 0.8 else \
+                          "Strong" if abs(pair['correlation']) > 0.6 else \
+                          "Moderate" if abs(pair['correlation']) > 0.4 else \
+                          "Weak" if abs(pair['correlation']) > 0.2 else "Very Weak"
+                
+                direction = "Positive" if pair['correlation'] > 0 else "Negative"
+                
+                top_correlations += f"  {i+1}. {pair['var1']} ↔ {pair['var2']}: {pair['correlation']:.3f} ({direction}, {strength})\n"
+            
+            summary = f"""🔥 {title}
+
+📊 Analysis Summary:
+  • Variables analyzed: {len(cols_to_use)}
+  • Correlation method: {method.title()}
+  • Color scale: Red (negative) ↔ Blue (positive)
+
+🔍 Top 5 Correlations:
+{top_correlations}
+
+💡 Interpretation:
+  • Values closer to +1 or -1 indicate stronger relationships
+  • Values near 0 indicate weak relationships
+  • Red colors show negative correlations (as one increases, other decreases)
+  • Blue colors show positive correlations (both increase/decrease together)"""
+
+            return summary
+            
+        except Exception as e:
+            return f"❌ Error creating correlation heatmap: {str(e)}"
+
+    def _arun(self, columns: list = None, method: str = "pearson", title: str = "Correlation Heatmap"):
+        raise NotImplementedError("Async not supported")

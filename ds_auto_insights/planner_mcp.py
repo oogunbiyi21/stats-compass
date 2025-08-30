@@ -64,7 +64,10 @@ try:
         CreateBarChartTool,
         CreateScatterPlotTool,
         CreateLineChartTool,
-        CreateColumnTool
+        CreateColumnTool,
+        TimeSeriesAnalysisTool,
+        CreateTimeSeriesChartTool,
+        CreateCorrelationHeatmapTool
     )
 except ImportError:
     from mcp_tools import (
@@ -78,7 +81,10 @@ except ImportError:
         CreateBarChartTool,
         CreateScatterPlotTool,
         CreateLineChartTool,
-        CreateColumnTool
+        CreateColumnTool,
+        TimeSeriesAnalysisTool,
+        CreateTimeSeriesChartTool,
+        CreateCorrelationHeatmapTool
     )
 
 
@@ -108,13 +114,19 @@ def run_mcp_planner(user_query: str, df: pd.DataFrame, chat_history: List[Dict] 
     scatter_plot_tool = CreateScatterPlotTool(df=df)
     line_chart_tool = CreateLineChartTool(df=df)
     
+    # Time series analysis tools
+    time_series_analysis_tool = TimeSeriesAnalysisTool(df=df)
+    time_series_chart_tool = CreateTimeSeriesChartTool(df=df)
+    correlation_heatmap_tool = CreateCorrelationHeatmapTool(df=df)
+    
     # Data transformation tools
     create_column_tool = CreateColumnTool(df=df)
     
     tools = [
         pandas_query_tool, groupby_tool, top_categories_tool, histogram_tool, 
         correlation_tool, dataset_preview_tool, histogram_chart_tool, 
-        bar_chart_tool, scatter_plot_tool, line_chart_tool, create_column_tool
+        bar_chart_tool, scatter_plot_tool, line_chart_tool, create_column_tool,
+        time_series_analysis_tool, time_series_chart_tool, correlation_heatmap_tool
     ]
 
     # 2) LLM (swap to Claude/Gemini later by changing the Chat* class)
@@ -132,7 +144,8 @@ def run_mcp_planner(user_query: str, df: pd.DataFrame, chat_history: List[Dict] 
          "- groupby_aggregate: Group data and calculate aggregations (mean, sum, count, etc.) - USE THIS for any grouping questions\n"
          "- top_categories: Find most frequent values in categorical columns - USE THIS for 'top X' questions\n"
          "- histogram: Analyze distribution of numeric columns - USE THIS for distribution/histogram questions\n"
-         "- correlation_matrix: Calculate correlations between numeric columns - USE THIS for correlation questions\n\n"
+         "- correlation_matrix: Calculate correlations between numeric columns - USE THIS for correlation questions\n"
+         "- time_series_analysis: Analyze trends and patterns over time - USE THIS for temporal analysis\n\n"
          "DATA TRANSFORMATION TOOLS:\n"
          "- create_column: Create new columns using pandas operations (calculations, conditions, transformations)\n"
          "  Examples: create opponent column, calculate ratios, create categorical bins, etc.\n\n"
@@ -140,7 +153,9 @@ def run_mcp_planner(user_query: str, df: pd.DataFrame, chat_history: List[Dict] 
          "- create_histogram_chart: Create visual histogram charts for numeric data distributions\n"
          "- create_bar_chart: Create visual bar charts for categorical data (top categories, counts)\n"
          "- create_scatter_plot: Create scatter plots to visualize relationships between two numeric variables\n"
-         "- create_line_chart: Create line charts for trends over time or ordered data\n\n"
+         "- create_line_chart: Create line charts for trends over time or ordered data\n"
+         "- create_time_series_chart: Create time series line charts after time_series_analysis\n"
+         "- create_correlation_heatmap: Create visual correlation heatmaps showing variable relationships\n\n"
          "PRIORITY GUIDELINES:\n"
          "1. You KNOW the dataset structure - use the column names directly without needing dataset_preview\n"
          "2. For visualization requests (charts, plots, graphs), ALWAYS use the chart creation tools\n"

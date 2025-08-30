@@ -69,6 +69,43 @@ def display_single_chart(chart_info):
             data.set_index(chart_info['x_column'])[chart_info['y_column']], 
             use_container_width=True
         )
+        
+    elif chart_type == 'time_series':
+        st.subheader(f"📈 {title}")
+        # For time series, we need to use plotly for better interactivity
+        try:
+            import plotly.express as px
+            chart_obj = chart_info.get('chart_object')
+            if chart_obj:
+                st.plotly_chart(chart_obj, use_container_width=True)
+            else:
+                # Fallback to simple line chart
+                st.line_chart(data.set_index('Date')['Value'], use_container_width=True)
+        except ImportError:
+            # Fallback if plotly not available
+            st.line_chart(data.set_index('Date')['Value'], use_container_width=True)
+            
+    elif chart_type == 'correlation_heatmap':
+        st.subheader(f"🔥 {title}")
+        try:
+            import plotly.express as px
+            chart_obj = chart_info.get('chart_object')
+            if chart_obj:
+                st.plotly_chart(chart_obj, use_container_width=True)
+            else:
+                # Fallback to simple heatmap representation
+                corr_matrix = chart_info.get('correlation_matrix', {})
+                if corr_matrix:
+                    import pandas as pd
+                    df_corr = pd.DataFrame(corr_matrix)
+                    st.dataframe(df_corr.style.background_gradient(cmap='RdBu_r', vmin=-1, vmax=1))
+        except ImportError:
+            # Show correlation data as table
+            corr_matrix = chart_info.get('correlation_matrix', {})
+            if corr_matrix:
+                import pandas as pd
+                df_corr = pd.DataFrame(corr_matrix)
+                st.dataframe(df_corr)
 
 # ---------- Setup ----------
 load_dotenv()
@@ -78,6 +115,35 @@ with st.sidebar:
     st.header("⚙️ Diagnostics")
     st.write("OPENAI_API_KEY set:", bool(os.getenv("OPENAI_API_KEY")))
     st.caption("Tip: create a `.env` with OPENAI_API_KEY=sk-...")
+    
+    # Smart suggestions sidebar (only show when dataset is loaded)
+    if hasattr(st.session_state, 'df') and st.session_state.df is not None:
+        st.divider()
+        st.header("💡 Quick Analysis")
+        
+        from smart_suggestions import generate_smart_suggestions
+        suggestions = generate_smart_suggestions(st.session_state.df)
+        
+        if suggestions:
+            st.caption("Click to run these analyses:")
+            
+            # Show top 3 suggestions in sidebar
+            for i, suggestion in enumerate(suggestions[:3]):
+                # Create a more compact button display
+                if st.button(
+                    suggestion['title'], 
+                    key=f"sidebar_suggest_{i}",
+                    help=suggestion['description'],
+                    use_container_width=True
+                ):
+                    # Queue the suggested query for processing
+                    st.session_state.to_process = suggestion['query']
+                    st.rerun()
+            
+            if len(suggestions) > 3:
+                st.caption(f"+ {len(suggestions) - 3} more suggestions in main view")
+        else:
+            st.caption("Upload data to see suggestions")
 
 st.title("📊 DS Auto Insights")
 st.subheader("Turn your raw datasets into structured insights instantly.")
@@ -108,11 +174,42 @@ if uploaded_file is not None:
         st.caption(f"Approx. memory usage: {mem_mb:.2f} MB")
 
         # Show what the AI knows about this dataset
-        with st.expander("🧠 What the AI knows about your dataset", expanded=False):
+        with st.expander("🧠 What I know about your dataset", expanded=False):
             from planner_mcp import generate_dataset_context
             context = generate_dataset_context(df)
             st.code(context.strip(), language=None)
-            st.info("💡 The AI assistant has immediate knowledge of all these columns and can suggest analysis without needing to explore first!")
+            st.info("💡 I have immediate knowledge of all these columns and can suggest analysis without needing to explore first!")
+
+        # Smart suggestions
+        with st.expander("💡 Smart Analysis Suggestions", expanded=True):
+            from smart_suggestions import generate_smart_suggestions, format_suggestion_for_ui
+            suggestions = generate_smart_suggestions(df)
+            
+            if suggestions:
+                st.markdown("**Recommended analysis based on your dataset:**")
+                
+                # Create columns for suggestions
+                cols = st.columns(2)
+                
+                for i, suggestion in enumerate(suggestions):
+                    with cols[i % 2]:
+                        with st.container():
+                            st.markdown(f"**{suggestion['title']}**")
+                            st.caption(suggestion['description'])
+                            
+                            if st.button(
+                                "Try this analysis", 
+                                key=f"suggest_{i}",
+                                help=suggestion['why']
+                            ):
+                                # Queue the suggested query for processing
+                                st.session_state.to_process = suggestion['query']
+                                st.rerun()
+                            
+                            st.caption(f"💭 {suggestion['why']}")
+                            st.divider()
+            else:
+                st.info("Upload a dataset to see intelligent analysis suggestions!")
 
         with st.expander("Columns & dtypes"):
             info = pd.DataFrame({
@@ -126,7 +223,7 @@ if uploaded_file is not None:
         st.error(f"❌ Failed to load file: {e}")
 
 # Guard
-if st.session_state.df is None:
+if not hasattr(st.session_state, 'df') or st.session_state.df is None:
     st.info("📂 Upload a CSV/XLSX file to get started.")
     st.stop()
 
@@ -150,7 +247,7 @@ with tab1:
 
     # 2) If we have a message queued from the previous run, process it
     queued = st.session_state.pop("to_process", None)
-    if queued is not None and st.session_state.df is not None:
+    if queued is not None and hasattr(st.session_state, 'df') and st.session_state.df is not None:
         # Clear current response charts to start fresh
         st.session_state.current_response_charts = []
         
