@@ -19,13 +19,31 @@ def detect_date_columns(df: pd.DataFrame) -> List[str]:
         if df[col].dtype == 'object':
             try:
                 # Sample a few non-null values
-                sample_values = df[col].dropna().head(10)
+                sample_values = df[col].dropna().head(5).astype(str)
                 if len(sample_values) > 0:
-                    # Try to parse the first few values, suppress format warnings
+                    # Check if values look like dates (basic patterns)
+                    sample_str = sample_values.iloc[0] if len(sample_values) > 0 else ""
+                    
+                    # Skip if it looks like regular text (more than 50 chars or contains many letters)
+                    if len(sample_str) > 50 or sum(c.isalpha() for c in sample_str) > len(sample_str) * 0.7:
+                        continue
+                        
+                    # Try to parse with common date formats first
                     import warnings
                     with warnings.catch_warnings():
-                        warnings.simplefilter("ignore")
-                        pd.to_datetime(sample_values, errors='raise', infer_datetime_format=True)
+                        warnings.filterwarnings("ignore")
+                        # Try common formats first
+                        try:
+                            pd.to_datetime(sample_values, format='%Y-%m-%d', errors='raise')
+                        except:
+                            try:
+                                pd.to_datetime(sample_values, format='%m/%d/%Y', errors='raise')
+                            except:
+                                try:
+                                    pd.to_datetime(sample_values, format='%d/%m/%Y', errors='raise') 
+                                except:
+                                    # Fall back to automatic parsing
+                                    pd.to_datetime(sample_values, errors='raise')
                     date_columns.append(col)
             except:
                 continue
