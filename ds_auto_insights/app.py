@@ -161,10 +161,23 @@ def display_single_chart(chart_info):
 load_dotenv()
 st.set_page_config(page_title="DS Auto Insights", layout="wide")
 
+# Add authentication check
+try:
+    from auth import check_password
+    if not check_password():
+        st.stop()
+except ImportError:
+    # If auth.py doesn't exist, continue without authentication
+    pass
+
 with st.sidebar:
     st.header("⚙️ Diagnostics")
     st.write("OPENAI_API_KEY set:", bool(os.getenv("OPENAI_API_KEY")))
     st.caption("Tip: create a `.env` with OPENAI_API_KEY=sk-...")
+    
+    # Show usage stats
+    if hasattr(st.session_state, 'query_count'):
+        st.caption(f"Queries this session: {st.session_state.query_count}")
     
     # Smart suggestions sidebar (only show when dataset is loaded)
     if hasattr(st.session_state, 'df') and st.session_state.df is not None:
