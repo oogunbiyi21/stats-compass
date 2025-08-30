@@ -1016,9 +1016,16 @@ class CreateTimeSeriesChartTool(BaseTool):
                 'type': 'time_series',
                 'title': title,
                 'data': chart_data,
-                'chart_object': fig,
                 'x_column': 'Date',
-                'y_column': st.session_state.get('time_series_ylabel', 'Value')
+                'y_column': st.session_state.get('time_series_ylabel', 'Value'),
+                # Store chart configuration instead of full object to avoid serialization issues
+                'chart_config': {
+                    'chart_type': 'line',
+                    'x_col': 'Date',
+                    'y_col': 'Value',
+                    'line_width': 3,
+                    'ylabel': st.session_state.get('time_series_ylabel', 'Value')
+                }
             }
             
             # Add to current response charts for persistence
@@ -1113,15 +1120,22 @@ class CreateCorrelationHeatmapTool(BaseTool):
                 width=max(400, len(cols_to_use) * 40)
             )
             
-            # Store chart info for export and persistence
+            # Store chart info for export and persistence  
             chart_info = {
                 'type': 'correlation_heatmap',
                 'title': title,
                 'data': corr_matrix.reset_index(),  # Convert to DataFrame for storage
-                'chart_object': fig,
                 'correlation_matrix': corr_matrix.to_dict(),  # Store as dict for JSON serialization
                 'method': method,
-                'columns': cols_to_use
+                'columns': cols_to_use,
+                # Store chart configuration for recreation
+                'chart_config': {
+                    'chart_type': 'heatmap',
+                    'color_scale': 'RdBu_r',
+                    'zmin': -1,
+                    'zmax': 1,
+                    'show_text': True
+                }
             }
             
             # Add to current response charts for persistence

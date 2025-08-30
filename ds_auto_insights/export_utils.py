@@ -61,40 +61,55 @@ def export_chart_as_image(chart_info: Dict[str, Any], format: str = "png") -> by
                 template='plotly_white'
             )
         elif chart_type == 'time_series':
-            # Use the stored chart object if available, otherwise create new
-            if 'chart_object' in chart_info:
-                fig = chart_info['chart_object']
-                fig.update_layout(template='plotly_white')
-            else:
-                fig = px.line(
-                    data, 
-                    x='Date', 
-                    y='Value',
-                    title=title,
-                    template='plotly_white'
-                )
+            # Recreate the chart from stored data
+            fig = px.line(
+                data, 
+                x='Date', 
+                y='Value',
+                title=title,
+                template='plotly_white'
+            )
+            
+            # Apply any stored styling
+            chart_config = chart_info.get('chart_config', {})
+            line_width = chart_config.get('line_width', 2)
+            ylabel = chart_config.get('ylabel', 'Value')
+            
+            fig.update_traces(line=dict(width=line_width))
+            fig.update_layout(
+                xaxis_title="Date",
+                yaxis_title=ylabel,
+                height=500
+            )
+            
         elif chart_type == 'correlation_heatmap':
-            # Use the stored chart object if available, otherwise create new
-            if 'chart_object' in chart_info:
-                fig = chart_info['chart_object']
-                fig.update_layout(template='plotly_white')
+            # Recreate the chart from correlation matrix
+            corr_matrix = chart_info.get('correlation_matrix', {})
+            if corr_matrix:
+                import pandas as pd
+                df_corr = pd.DataFrame(corr_matrix)
+                fig = px.imshow(
+                    df_corr,
+                    text_auto=True,
+                    title=title,
+                    template='plotly_white',
+                    color_continuous_scale='RdBu_r',
+                    zmin=-1,
+                    zmax=1
+                )
+                
+                fig.update_traces(
+                    texttemplate="%{text:.2f}",
+                    textfont_size=10
+                )
+                
+                cols_count = len(chart_info.get('columns', []))
+                fig.update_layout(
+                    height=max(400, cols_count * 40),
+                    width=max(400, cols_count * 40)
+                )
             else:
-                # Reconstruct from correlation matrix
-                corr_matrix = chart_info.get('correlation_matrix', {})
-                if corr_matrix:
-                    import pandas as pd
-                    df_corr = pd.DataFrame(corr_matrix)
-                    fig = px.imshow(
-                        df_corr,
-                        text_auto=True,
-                        title=title,
-                        template='plotly_white',
-                        color_continuous_scale='RdBu_r',
-                        zmin=-1,
-                        zmax=1
-                    )
-                else:
-                    raise ValueError("No correlation matrix data available")
+                raise ValueError("No correlation matrix data available")
         else:
             raise ValueError(f"Unsupported chart type: {chart_type}")
         
