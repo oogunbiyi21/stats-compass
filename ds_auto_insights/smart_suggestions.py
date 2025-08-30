@@ -21,8 +21,11 @@ def detect_date_columns(df: pd.DataFrame) -> List[str]:
                 # Sample a few non-null values
                 sample_values = df[col].dropna().head(10)
                 if len(sample_values) > 0:
-                    # Try to parse the first few values
-                    pd.to_datetime(sample_values, errors='raise')
+                    # Try to parse the first few values, suppress format warnings
+                    import warnings
+                    with warnings.catch_warnings():
+                        warnings.simplefilter("ignore")
+                        pd.to_datetime(sample_values, errors='raise', infer_datetime_format=True)
                     date_columns.append(col)
             except:
                 continue

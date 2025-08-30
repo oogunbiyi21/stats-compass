@@ -917,16 +917,58 @@ class TimeSeriesAnalysisTool(BaseTool):
             min_date = resampled.idxmin()
             
             # Store data for chart creation
+            # Create chart data
             chart_data = pd.DataFrame({
                 'Date': resampled.index,
                 'Value': resampled.values
             })
             
+            # Create chart immediately to avoid session state conflicts
+            import plotly.express as px
+            
+            fig = px.line(
+                chart_data, 
+                x='Date', 
+                y='Value',
+                title=f"{value_column} over Time ({agg_method.title()})"
+            )
+            
+            # Enhance the chart
+            fig.update_traces(
+                line=dict(width=3),
+                hovertemplate='<b>Date</b>: %{x}<br><b>Value</b>: %{y:.2f}<extra></extra>'
+            )
+            
+            fig.update_layout(
+                title=dict(x=0.5, font=dict(size=16)),
+                xaxis_title="Date",
+                yaxis_title=value_column,
+                hovermode='x unified',
+                height=500
+            )
+            
+            # Store chart info for export and persistence (unique data per chart)
+            chart_info = {
+                'type': 'time_series',
+                'title': f"{value_column} over Time ({agg_method.title()})",
+                'data': chart_data,
+                'x_column': 'Date',
+                'y_column': 'Value',
+                'variable_name': value_column,  # Store which variable this is for
+                'chart_config': {
+                    'chart_type': 'line',
+                    'x_col': 'Date',
+                    'y_col': 'Value',
+                    'line_width': 3,
+                    'ylabel': value_column
+                }
+            }
+            
+            # Add to current response charts for persistence
             if hasattr(st, 'session_state'):
-                st.session_state.time_series_chart_data = chart_data
-                st.session_state.time_series_title = f"{value_column} over Time ({agg_method.title()})"
-                st.session_state.time_series_xlabel = "Date"
-                st.session_state.time_series_ylabel = value_column
+                if 'current_response_charts' not in st.session_state:
+                    st.session_state.current_response_charts = []
+                st.session_state.current_response_charts.append(chart_info)
             
             # Summary statistics
             summary = f"""📈 Time Series Analysis: {value_column} over {date_column}
@@ -947,7 +989,9 @@ class TimeSeriesAnalysisTool(BaseTool):
   • Average: {resampled.mean():.2f}
   • Standard deviation: {resampled.std():.2f}
 
-Chart data prepared for visualization. Use 'create_time_series_chart' to display the trend line."""
+Chart data prepared for display. 📈
+
+Time series chart created and ready for visualization."""
 
             return summary
             
