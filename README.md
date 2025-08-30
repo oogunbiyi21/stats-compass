@@ -101,6 +101,27 @@ poetry run streamlit run ds_auto_insights/app.py
    - "Generate a comprehensive analysis report"
 5. **Export your results** - PDF reports, charts, or session data
 
+### 📁 Example Datasets & Outputs
+
+Check out the `/examples` folder for real analysis examples:
+
+- **📈 Stock Market Analysis** (`examples/stock_market/`)
+  - Time series analysis of TATA MOTORS stock data
+  - PDF reports with trend analysis and statistics
+  - Distribution visualizations and insights
+
+- **⚽ Football Analytics** (`examples/football/`) 
+  - Player performance analysis (Bukayo Saka data)
+  - Multi-chart exports with correlation analysis
+  - Creative metrics exploration (xG, assists, key passes)
+
+- **🏠 Housing Market** (`examples/housing/`)
+  - Real estate price analysis
+  - Geographic and feature correlation insights
+  - Market trend identification
+
+Each example includes actual generated reports, charts, and session data demonstrating the full export pipeline.
+
 ## 🛡️ Safety & Reliability
 
 - **No arbitrary code execution** - Only whitelisted pandas operations
