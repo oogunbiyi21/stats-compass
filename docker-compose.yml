@@ -1,0 +1,12 @@
+version: '3.8'
+
+services:
+  ds-auto-insights:
+    build: .
+    ports:
+      - "8501:8501"
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    volumes:
+      - .env:/app/.env:ro
+    restart: unless-stopped
