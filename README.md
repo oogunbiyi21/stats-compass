@@ -165,9 +165,8 @@ This project is in active development. Feel free to:
 - Share feedback and use cases
 - Contribute to documentation
 
-## 🚀 Performance & Scalability
+## 🚀 Performance
 
-- **Optimized for datasets up to 100MB** 
 - **Efficient memory usage** with pandas optimizations
 - **Fast chart rendering** with Plotly and Streamlit
 - **Responsive UI** even with complex visualizations
