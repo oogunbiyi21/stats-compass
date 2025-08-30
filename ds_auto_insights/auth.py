@@ -4,6 +4,14 @@ import hashlib
 def check_password():
     """Returns `True` if the user had the correct password."""
     
+    # Skip authentication in local development
+    if "localhost" in st.context.headers.get("host", "") or not hasattr(st, "secrets"):
+        return True
+    
+    # Only require password in production (Streamlit Cloud)
+    if "app_password" not in st.secrets:
+        return True  # No password configured, allow access
+    
     def password_entered():
         """Checks whether a password entered by the user is correct."""
         if st.session_state["password"] == st.secrets["app_password"]:
