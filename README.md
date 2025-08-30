@@ -141,19 +141,11 @@ See [PM Data Tool Roadmap.txt](PM%20Data%20Tool%20Roadmap.txt) for detailed deve
 - ✅ Fixed multiple time series generation conflicts
 
 ## 🤝 Contributing
-
-This project is in active development. Feel free to:
-- Report issues and bugs
-- Suggest new features or improvements
-- Submit pull requests
-- Share feedback and use cases
-## 🤝 Contributing
-
 This is an experimental project. Feel free to:
 - Try it out and report issues
-- Suggest improvements
+- Suggest improvements or new features
 - Fork and experiment
-- Share feedback
+- Share feedback and use cases
 
 ## ⚠️ Disclaimer
 
