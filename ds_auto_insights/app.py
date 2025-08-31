@@ -247,52 +247,52 @@ if uploaded_file is not None:
         st.dataframe(df.head(), use_container_width=True)
         mem_mb = df.memory_usage(deep=True).sum() / (1024**2)
         st.caption(f"Approx. memory usage: {mem_mb:.2f} MB")
+        with st.sidebar:
+            # Show what the AI knows about this dataset
+            with st.expander("🧠 What I know about your dataset", expanded=False):
+                from planner_mcp import generate_dataset_context
+                context = generate_dataset_context(df)
+                st.code(context.strip(), language=None)
+                st.info("💡 I have immediate knowledge of all these columns and can suggest analysis without needing to explore first!")
 
-        # Show what the AI knows about this dataset
-        with st.expander("🧠 What I know about your dataset", expanded=False):
-            from planner_mcp import generate_dataset_context
-            context = generate_dataset_context(df)
-            st.code(context.strip(), language=None)
-            st.info("💡 I have immediate knowledge of all these columns and can suggest analysis without needing to explore first!")
-
-        # Smart suggestions
-        with st.expander("💡 Smart Analysis Suggestions", expanded=True):
-            from smart_suggestions import generate_smart_suggestions, format_suggestion_for_ui
-            suggestions = generate_smart_suggestions(df)
-            
-            if suggestions:
-                st.markdown("**Recommended analysis based on your dataset:**")
+            # Smart suggestions
+            with st.expander("💡 Smart Analysis Suggestions", expanded=True):
+                from smart_suggestions import generate_smart_suggestions, format_suggestion_for_ui
+                suggestions = generate_smart_suggestions(df)
                 
-                # Create columns for suggestions
-                cols = st.columns(2)
-                
-                for i, suggestion in enumerate(suggestions):
-                    with cols[i % 2]:
-                        with st.container():
-                            st.markdown(f"**{suggestion['title']}**")
-                            st.caption(suggestion['description'])
-                            
-                            if st.button(
-                                "Try this analysis", 
-                                key=f"suggest_{i}",
-                                help=suggestion['why']
-                            ):
-                                # Queue the suggested query for processing
-                                st.session_state.to_process = suggestion['query']
-                                st.rerun()
-                            
-                            st.caption(f"💭 {suggestion['why']}")
-                            st.divider()
-            else:
-                st.info("Upload a dataset to see intelligent analysis suggestions!")
+                if suggestions:
+                    st.markdown("**Recommended analysis based on your dataset:**")
+                    
+                    # Create columns for suggestions
+                    cols = st.columns(2)
+                    
+                    for i, suggestion in enumerate(suggestions):
+                        with cols[i % 2]:
+                            with st.container():
+                                st.markdown(f"**{suggestion['title']}**")
+                                st.caption(suggestion['description'])
+                                
+                                if st.button(
+                                    "Try this analysis", 
+                                    key=f"suggest_{i}",
+                                    help=suggestion['why']
+                                ):
+                                    # Queue the suggested query for processing
+                                    st.session_state.to_process = suggestion['query']
+                                    st.rerun()
+                                
+                                st.caption(f"💭 {suggestion['why']}")
+                                st.divider()
+                else:
+                    st.info("Upload a dataset to see intelligent analysis suggestions!")
 
-        with st.expander("Columns & dtypes"):
-            info = pd.DataFrame({
-                "column": df.columns,
-                "dtype": df.dtypes.astype(str).values,
-                "nulls": df.isna().sum().values
-            })
-            st.dataframe(info, use_container_width=True)
+            with st.expander("Columns & dtypes"):
+                info = pd.DataFrame({
+                    "column": df.columns,
+                    "dtype": df.dtypes.astype(str).values,
+                    "nulls": df.isna().sum().values
+                })
+                st.dataframe(info, use_container_width=True)
 
     except Exception as e:
         st.error(f"❌ Failed to load file: {e}")
@@ -305,10 +305,10 @@ if not hasattr(st.session_state, 'df') or st.session_state.df is None:
 df_use = st.session_state.df
 
 # ---------- Tabs ----------
-tab1, tab2, tab3, tab4 = st.tabs(["Chat (LLM)", "Summary", "Explore", "📄 Reports"])
+tab1, tab2, tab3, tab4 = st.tabs(["Chat", "Summary", "Explore", "Reports"])
 
 with tab1:
-    st.header("Chat (tool-calling)")
+    st.header("Chat")
 
     # 1) Replay existing chat history first (before processing new message)
     for i, msg in enumerate(st.session_state.chat_history):
