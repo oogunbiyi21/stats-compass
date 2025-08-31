@@ -1,6 +1,6 @@
 # ds_auto_insights/mcp_tools.py
 
-from typing import Type
+from typing import Type, Optional
 from pydantic import BaseModel, Field, PrivateAttr
 from langchain.tools import Tool
 from langchain.tools.base import BaseTool
@@ -367,7 +367,7 @@ class HistogramTool(BaseTool):
 
 # Tool: Correlation matrix
 class CorrelationMatrixInput(BaseModel):
-    columns: list[str] = Field(default=None, description="Specific columns to include (optional)")
+    columns: list[str] | None = Field(default=None, description="Specific columns to include (optional)")
     method: str = Field(default="pearson", description="Correlation method: pearson, spearman, or kendall")
 
 
@@ -407,8 +407,12 @@ class CorrelationMatrixTool(BaseTool):
             
             result_lines = [f"📊 Correlation Matrix ({method.title()})"]
             result_lines.append(f"Columns analyzed: {list(df_numeric.columns)}")
-            result_lines.append("\nCorrelation Matrix:")
-            result_lines.append(corr_matrix.to_string())
+            result_lines.append("\n📈 Correlation Summary:")
+            
+            # Only show a summary instead of the full matrix
+            result_lines.append(f"  • Matrix size: {len(corr_matrix.columns)} × {len(corr_matrix.columns)}")
+            result_lines.append(f"  • Method: {method.title()}")
+            result_lines.append(f"  • Range: {corr_matrix.values[corr_matrix.values != 1.0].min():.3f} to {corr_matrix.values[corr_matrix.values != 1.0].max():.3f}")
 
             # Highlight strong correlations (exclude diagonal)
             strong_corrs = []
@@ -1089,7 +1093,7 @@ class CreateTimeSeriesChartTool(BaseTool):
 
 # Create Correlation Heatmap Tool
 class CreateCorrelationHeatmapInput(BaseModel):
-    columns: list = Field(default=None, description="List of numeric columns to include. If None, uses all numeric columns.")
+    columns: list | None = Field(default=None, description="List of numeric columns to include. If None, uses all numeric columns.")
     method: str = Field(default="pearson", description="Correlation method: pearson, kendall, or spearman")
     title: str = Field(default="Correlation Heatmap", description="Chart title")
 
@@ -1117,6 +1121,10 @@ class CreateCorrelationHeatmapTool(BaseTool):
             
             if len(numeric_cols) < 2:
                 return f"❌ Need at least 2 numeric columns for correlation analysis. Found: {len(numeric_cols)}"
+            
+            # Performance optimization: limit columns for large datasets
+            if len(numeric_cols) > 20:
+                return f"⚠️ Too many numeric columns ({len(numeric_cols)}) for heatmap visualization. Please specify up to 20 columns using the 'columns' parameter."
             
             # Use specified columns or all numeric columns
             if columns:
@@ -1218,19 +1226,12 @@ class CreateCorrelationHeatmapTool(BaseTool):
             
             summary = f"""🔥 {title}
 
-📊 Analysis Summary:
-  • Variables analyzed: {len(cols_to_use)}
-  • Correlation method: {method.title()}
-  • Color scale: Red (negative) ↔ Blue (positive)
+📊 Created correlation heatmap with {len(cols_to_use)} variables using {method} method.
 
-🔍 Top 5 Correlations:
-{top_correlations}
+🔍 Strongest correlations:
+{top_correlations.strip()}
 
-💡 Interpretation:
-  • Values closer to +1 or -1 indicate stronger relationships
-  • Values near 0 indicate weak relationships
-  • Red colors show negative correlations (as one increases, other decreases)
-  • Blue colors show positive correlations (both increase/decrease together)"""
+💡 The heatmap shows relationships between variables - blue indicates positive correlation, red indicates negative correlation."""
 
             return summary
             

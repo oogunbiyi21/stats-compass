@@ -23,11 +23,15 @@ from export_utils import (
 )
 
 
-def display_single_chart(chart_info):
+def display_single_chart(chart_info, chart_id=None):
     """Display a single chart based on chart_info dictionary"""
     chart_type = chart_info.get('type')
     data = chart_info.get('data')
     title = chart_info.get('title', 'Chart')
+    
+    # Generate unique ID for this chart
+    if chart_id is None:
+        chart_id = f"{chart_type}_{hash(title) % 10000}"
     
     # Debug information
     st.caption(f"🔍 Chart Type: {chart_type} | Data Shape: {data.shape if hasattr(data, 'shape') else 'N/A'} | Title: {title}")
@@ -104,7 +108,7 @@ def display_single_chart(chart_info):
                 height=500
             )
             
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, use_container_width=True, key=f"timeseries_{chart_id}")
         except ImportError:
             # Fallback if plotly not available
             st.line_chart(data.set_index('Date')['Value'], use_container_width=True)
@@ -145,7 +149,7 @@ def display_single_chart(chart_info):
                     width=max(400, cols_count * 40)
                 )
                 
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, use_container_width=True, key=f"heatmap_{chart_id}")
             else:
                 st.error("No correlation matrix data available")
                 
@@ -317,8 +321,8 @@ with tab1:
             
             # Display charts that were created with this message
             if msg["role"] == "assistant" and "charts" in msg:
-                for chart_info in msg["charts"]:
-                    display_single_chart(chart_info)
+                for j, chart_info in enumerate(msg["charts"]):
+                    display_single_chart(chart_info, f"history_{i}_{j}")
 
     # 2) If we have a message queued from the previous run, process it
     queued = st.session_state.pop("to_process", None)
@@ -358,7 +362,7 @@ with tab1:
                 st.info(f"📊 Displaying {len(st.session_state.current_response_charts)} charts from this response")
                 for i, chart_info in enumerate(st.session_state.current_response_charts):
                     st.caption(f"Chart {i+1}: {chart_info.get('type', 'unknown')} - {chart_info.get('title', 'untitled')}")
-                    display_single_chart(chart_info)
+                    display_single_chart(chart_info, f"current_{i}")
                     current_charts.append(chart_info)
                 
                 # Clear the current response charts since they're now displayed
