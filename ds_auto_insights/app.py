@@ -172,8 +172,20 @@ except ImportError:
 
 with st.sidebar:
     st.header("⚙️ Diagnostics")
-    st.write("OPENAI_API_KEY set:", bool(os.getenv("OPENAI_API_KEY")))
-    st.caption("Tip: create a `.env` with OPENAI_API_KEY=sk-...")
+    
+    # Environment detection
+    is_cloud = hasattr(st, "secrets") and "localhost" not in st.context.headers.get("host", "")
+    env_type = "☁️ Streamlit Cloud" if is_cloud else "💻 Local Dev"
+    st.caption(f"Environment: {env_type}")
+    
+    # API Key status
+    api_key_set = bool(os.getenv("OPENAI_API_KEY"))
+    st.write("OPENAI_API_KEY set:", api_key_set)
+    if not api_key_set:
+        if is_cloud:
+            st.warning("⚠️ Add OPENAI_API_KEY to Streamlit Cloud secrets")
+        else:
+            st.caption("Tip: create a `.env` with OPENAI_API_KEY=sk-...")
     
     # Show usage stats
     if hasattr(st.session_state, 'query_count'):
@@ -508,7 +520,6 @@ with tab3:
         st.info("Not enough numeric columns to compute correlations.")
     else:
         st.dataframe(corr, use_container_width=True)
-        st.caption("We can add a heatmap later if useful.")
 
     st.markdown("---")
     st.markdown("**Suggested visualisations**")
