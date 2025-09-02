@@ -219,8 +219,6 @@ with st.sidebar:
                     st.session_state.to_process = suggestion['query']
                     st.rerun()
             
-            if len(suggestions) > 3:
-                st.caption(f"+ {len(suggestions) - 3} more suggestions in main view")
         else:
             st.caption("Upload data to see suggestions")
 
