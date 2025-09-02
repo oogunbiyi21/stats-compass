@@ -13,3 +13,5 @@ markdown>=3.8.2
 pillow>=11.3.0
 kaleido>=1.0.0
 reportlab>=4.4.3
+openpyxl>=3.0.0
+xlrd>=2.0.0
