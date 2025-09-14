@@ -8,19 +8,24 @@ from dotenv import load_dotenv
 
 # ---- Local modules ----
 from util import (
+    process_uploaded_file,
+    display_single_chart,
     summarise_dataset,
     key_trends_numeric_only,
     suggest_visualisations,
-    process_uploaded_file,
-    display_single_chart
+    track_usage,
+    update_session_usage,
+    get_usage_summary,
+    check_usage_limits,
+    render_session_summary,
+    render_export_buttons,
+    render_text_export_buttons,
+    render_data_export_buttons,
+    render_report_preview
 )
 from planner_mcp import run_mcp_planner
 from export_utils import (
-    generate_markdown_report,
-    export_pdf_report,
     create_narrative_summary,
-    export_session_data,
-    export_chart_as_image
 )
 from smart_suggestions import generate_smart_suggestions
 
@@ -53,6 +58,28 @@ with st.sidebar:
             st.warning("⚠️ Add OPENAI_API_KEY to Streamlit Cloud secrets")
         else:
             st.caption("Tip: create a `.env` with OPENAI_API_KEY=sk-...")
+    
+    # Token Usage & Cost Tracking
+    st.divider()
+    total_tokens, total_cost, usage_display = get_usage_summary()
+    st.markdown(f"**{usage_display}**")
+    
+    # Check for usage warnings
+    usage_warning = check_usage_limits(total_tokens, total_cost)
+    if usage_warning:
+        st.warning(usage_warning)
+    
+    # Show detailed breakdown if there's usage
+    if total_tokens > 0:
+        with st.expander("📊 Usage Details"):
+            usage_history = st.session_state.get("usage_history", [])
+            if usage_history:
+                st.caption(f"Total interactions: {len(usage_history)}")
+                
+                # Show last few interactions
+                recent = usage_history[-3:] if len(usage_history) > 3 else usage_history
+                for i, usage in enumerate(recent, 1):
+                    st.caption(f"Query {len(usage_history) - len(recent) + i}: {usage['total_tokens']} tokens (${usage['cost']:.4f})")
     
     st.divider()
     
@@ -103,21 +130,6 @@ else:
             st.code(context.strip(), language=None)
             st.info("💡 I have immediate knowledge of all these columns and can suggest analysis without needing to explore first!")
 
-        # Detailed smart suggestions (different from the compact sidebar ones)
-        with st.expander("� Columns & Data Types"):
-            info = pd.DataFrame({
-                "column": st.session_state.df.columns,
-                "dtype": st.session_state.df.dtypes.astype(str).values,
-                "nulls": st.session_state.df.isna().sum().values
-            })
-            st.dataframe(info, use_container_width=True)
-            info = pd.DataFrame({
-                "column": st.session_state.df.columns,
-                "dtype": st.session_state.df.dtypes.astype(str).values,
-                "nulls": st.session_state.df.isna().sum().values
-            })
-            st.dataframe(info, use_container_width=True)
-
         # File uploader in sidebar when dataset is loaded
         st.divider()
         st.header("📁 Change Dataset")
@@ -139,105 +151,17 @@ else:
             st.divider()
             st.header("📄 Export & Reports")
             
-            # Check if there's any analysis to export
-            has_analysis = hasattr(st.session_state, 'chat_history') and st.session_state.chat_history
-            
-            if has_analysis:
-                # Summary stats about the session
-                user_questions = [msg for msg in st.session_state.chat_history if msg["role"] == "user"]
-                assistant_responses = [msg for msg in st.session_state.chat_history if msg["role"] == "assistant"]
-                total_charts = sum(len(msg.get("charts", [])) for msg in assistant_responses)
-                
-                st.caption(f"💬 {len(user_questions)} questions • 📊 {total_charts} charts")
-            else:
-                st.caption("💡 Start analyzing to generate reports")
+            # Show session summary
+            render_session_summary(st.session_state.chat_history, location="sidebar")
             
             filename = st.session_state.get('uploaded_filename', "dataset")
             
-            # Export buttons in sidebar
-            if st.button("📝 Markdown", help="Export conversation as Markdown", use_container_width=True):
-                if not has_analysis:
-                    st.warning("⚠️ Can't generate report without analysis. Ask questions about your data first!")
-                else:
-                    try:
-                        markdown_content = generate_markdown_report(st.session_state.chat_history, filename)
-                        st.download_button(
-                            label="⬇️ Download Markdown",
-                            data=markdown_content,
-                            file_name=f"analysis_report_{filename}_{datetime.now().strftime('%Y%m%d_%H%M')}.md",
-                            mime="text/markdown",
-                            key="sidebar_md_download",
-                            use_container_width=True
-                        )
-                    except Exception as e:
-                        st.error(f"Error: {e}")
-            
-            if st.button("📊 PDF Report", help="Export full report with charts as PDF", use_container_width=True):
-                if not has_analysis:
-                    st.warning("⚠️ Can't generate report without analysis. Ask questions about your data first!")
-                else:
-                    try:
-                        with st.spinner("Generating PDF..."):
-                            pdf_bytes = export_pdf_report(st.session_state.chat_history, filename)
-                            if pdf_bytes:
-                                st.download_button(
-                                    label="⬇️ Download PDF",
-                                    data=pdf_bytes,
-                                    file_name=f"analysis_report_{filename}_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf",
-                                    mime="application/pdf",
-                                    key="sidebar_pdf_download",
-                                    use_container_width=True
-                                )
-                    except Exception as e:
-                        st.error(f"Error: {e}")
-            
-            if st.button("📈 Charts ZIP", help="Download all charts as images", use_container_width=True):
-                if not has_analysis:
-                    st.warning("⚠️ Can't export charts without analysis. Ask questions to generate charts first!")
-                else:
-                    # Check if any charts actually exist
-                    total_charts = sum(len(msg.get("charts", [])) for msg in st.session_state.chat_history if msg["role"] == "assistant")
-                    
-                    if total_charts == 0:
-                        st.warning("⚠️ No charts found to export! Ask questions that generate visualizations first.")
-                    else:
-                        try:
-                            import zipfile
-                            from io import BytesIO
-                            
-                            zip_buffer = BytesIO()
-                            with zipfile.ZipFile(zip_buffer, 'w') as zip_file:
-                                chart_count = 1
-                                for msg in st.session_state.chat_history:
-                                    if msg["role"] == "assistant" and "charts" in msg:
-                                        for chart in msg["charts"]:
-                                            try:
-                                                chart_bytes = export_chart_as_image(chart, format='png')
-                                                if chart_bytes:
-                                                    chart_title = chart.get('title', f'Chart_{chart_count}')
-                                                    safe_title = "".join(c for c in chart_title if c.isalnum() or c in (' ', '-', '_')).strip()
-                                                    zip_file.writestr(f"{chart_count:02d}_{safe_title}.png", chart_bytes)
-                                                    chart_count += 1
-                                            except Exception:
-                                                pass
-                            
-                            zip_buffer.seek(0)
-                            st.download_button(
-                                label="⬇️ Download Charts",
-                                data=zip_buffer.getvalue(),
-                                file_name=f"charts_{filename}_{datetime.now().strftime('%Y%m%d_%H%M')}.zip",
-                                mime="application/zip",
-                                key="sidebar_charts_download",
-                                use_container_width=True
-                            )
-                        except Exception as e:
-                            st.error(f"Error: {e}")
+            # Render export buttons
+            render_export_buttons(st.session_state.chat_history, filename, location="sidebar")
             
             # Dataset context and detailed analysis
             st.divider()
             
-            
-
 if uploaded_file is not None:
     try:
         # File processing is handled above, this section is no longer needed
@@ -418,6 +342,21 @@ with tab1:
         if current_charts:
             assistant_message["charts"] = current_charts
         st.session_state.chat_history.append(assistant_message)
+        
+        # Track token usage and cost for this interaction
+        try:
+            usage_stats = track_usage(queued, final_text, model="gpt-4o")  # Adjust model as needed
+            update_session_usage(usage_stats)
+            
+            # Show usage for this query in an expander
+            with st.expander("💰 Usage for this query"):
+                st.caption(f"Tokens: {usage_stats['total_tokens']:,} | Cost: ${usage_stats['cost']:.4f}")
+                st.caption(f"Input: {usage_stats['input_tokens']} | Output: {usage_stats['output_tokens']}")
+            
+            # Force rerun to update sidebar usage display
+            st.rerun()
+        except Exception as e:
+            st.caption(f"Usage tracking error: {e}")
 
     # 3) Place the chat input at the END. When user submits, queue it + rerun.
     user_query = st.chat_input("Ask a question about your data", key="chat_input_bottom")
@@ -480,18 +419,8 @@ with tab4:
     if not st.session_state.chat_history:
         st.info("💬 Start a conversation in the Chat tab to generate reports.")
     else:
-        # Summary stats about the session
-        user_questions = [msg for msg in st.session_state.chat_history if msg["role"] == "user"]
-        assistant_responses = [msg for msg in st.session_state.chat_history if msg["role"] == "assistant"]
-        total_charts = sum(len(msg.get("charts", [])) for msg in assistant_responses)
-        
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("Questions Asked", len(user_questions))
-        with col2:
-            st.metric("AI Responses", len(assistant_responses))
-        with col3:
-            st.metric("Charts Created", total_charts)
+        # Session statistics
+        render_session_summary(st.session_state.chat_history, location="tab")
         
         st.divider()
         
@@ -515,123 +444,12 @@ with tab4:
         
         with col1:
             st.markdown("**📝 Text Reports**")
-            
-            # Markdown Export
-            if st.button("Export Markdown Report", key="md_export_tab"):
-                try:
-                    markdown_content = generate_markdown_report(st.session_state.chat_history, filename)
-                    st.download_button(
-                        label="⬇️ Download Markdown",
-                        data=markdown_content,
-                        file_name=f"analysis_report_{filename}_{datetime.now().strftime('%Y%m%d_%H%M')}.md",
-                        mime="text/markdown",
-                        key="md_download"
-                    )
-                    st.success("✅ Markdown report ready for download!")
-                except Exception as e:
-                    st.error(f"Error generating markdown: {e}")
-            
-            # PDF Export
-            if st.button("Export PDF Report", key="pdf_export_tab"):
-                try:
-                    with st.spinner("🔄 Generating PDF with embedded charts..."):
-                        pdf_bytes = export_pdf_report(st.session_state.chat_history, filename)
-                        if pdf_bytes:
-                            st.download_button(
-                                label="⬇️ Download PDF",
-                                data=pdf_bytes,
-                                file_name=f"analysis_report_{filename}_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf",
-                                mime="application/pdf",
-                                key="pdf_download"
-                            )
-                            st.success("✅ PDF report ready for download!")
-                except Exception as e:
-                    st.error(f"Error generating PDF: {e}")
+            render_text_export_buttons(st.session_state.chat_history, filename, location="tab")
         
         with col2:
             st.markdown("**📊 Data & Charts**")
-            
-            # Charts Export
-            if st.button("Export All Charts", key="charts_export_tab"):
-                try:
-                    import zipfile
-                    from io import BytesIO
-                    
-                    zip_buffer = BytesIO()
-                    with zipfile.ZipFile(zip_buffer, 'w') as zip_file:
-                        chart_count = 1
-                        for msg in st.session_state.chat_history:
-                            if msg["role"] == "assistant" and "charts" in msg:
-                                for chart in msg["charts"]:
-                                    try:
-                                        chart_bytes = export_chart_as_image(chart, format='png')
-                                        if chart_bytes:
-                                            chart_title = chart.get('title', f'Chart_{chart_count}')
-                                            safe_title = "".join(c for c in chart_title if c.isalnum() or c in (' ', '-', '_')).strip()
-                                            zip_file.writestr(f"{chart_count:02d}_{safe_title}.png", chart_bytes)
-                                            chart_count += 1
-                                    except Exception as e:
-                                        st.warning(f"Could not export chart: {e}")
-                    
-                    zip_buffer.seek(0)
-                    st.download_button(
-                        label="⬇️ Download Charts ZIP",
-                        data=zip_buffer.getvalue(),
-                        file_name=f"charts_{filename}_{datetime.now().strftime('%Y%m%d_%H%M')}.zip",
-                        mime="application/zip",
-                        key="charts_download"
-                    )
-                    st.success("✅ Charts ZIP ready for download!")
-                except Exception as e:
-                    st.error(f"Error exporting charts: {e}")
-            
-            # Session Data Export
-            if st.button("Export Session Data", key="data_export_tab"):
-                try:
-                    all_charts = []
-                    for msg in st.session_state.chat_history:
-                        if msg["role"] == "assistant" and "charts" in msg:
-                            all_charts.extend(msg["charts"])
-                    
-                    session_data = export_session_data(st.session_state.chat_history, all_charts)
-                    
-                    st.download_button(
-                        label="⬇️ Download JSON",
-                        data=json.dumps(session_data, indent=2),
-                        file_name=f"session_data_{filename}_{datetime.now().strftime('%Y%m%d_%H%M')}.json",
-                        mime="application/json",
-                        key="data_download"
-                    )
-                    st.success("✅ Session data ready for download!")
-                except Exception as e:
-                    st.error(f"Error exporting session data: {e}")
+            render_data_export_buttons(st.session_state.chat_history, filename, location="tab")
         
         # Preview Section
         st.divider()
-        st.subheader("👀 Report Preview")
-        
-        preview_type = st.radio(
-            "Choose preview type:",
-            ["Markdown", "Session Summary"],
-            horizontal=True
-        )
-        
-        if preview_type == "Markdown":
-            try:
-                markdown_content = generate_markdown_report(st.session_state.chat_history, filename)
-                st.markdown("**Preview (first 1000 characters):**")
-                st.code(markdown_content[:1000] + "..." if len(markdown_content) > 1000 else markdown_content, language="markdown")
-            except Exception as e:
-                st.error(f"Error generating preview: {e}")
-        
-        elif preview_type == "Session Summary":
-            st.markdown("**Chat Session Overview:**")
-            for i, msg in enumerate(st.session_state.chat_history):
-                if msg["role"] == "user":
-                    st.markdown(f"**Q{i//2 + 1}:** {msg['content'][:100]}{'...' if len(msg['content']) > 100 else ''}")
-                elif msg["role"] == "assistant":
-                    charts_info = f" (+{len(msg.get('charts', []))} charts)" if msg.get('charts') else ""
-                    st.markdown(f"**A{i//2 + 1}:** {msg['content'][:100]}{'...' if len(msg['content']) > 100 else ''}{charts_info}")
-                    
-            if total_charts > 0:
-                st.info(f"💡 This session created {total_charts} visualizations that will be included in exported reports.")
+        render_report_preview(st.session_state.chat_history, filename)
