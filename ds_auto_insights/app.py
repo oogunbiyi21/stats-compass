@@ -21,6 +21,58 @@ from export_utils import (
     export_session_data,
     export_chart_as_image
 )
+from smart_suggestions import generate_smart_suggestions
+
+
+def process_uploaded_file(uploaded_file, clear_history=False):
+    """
+    Process an uploaded file and update session state.
+    
+    Args:
+        uploaded_file: Streamlit uploaded file object
+        clear_history: Whether to clear chat history (for new file uploads)
+    
+    Returns:
+        bool: True if file was processed successfully, False otherwise
+    """
+    if uploaded_file is None:
+        return False
+        
+    try:
+        df = load_table(uploaded_file)
+        
+        # Check if the loaded DataFrame is empty or has no meaningful data
+        if df.empty or df.shape[1] == 0:
+            st.warning("⚠️ **Empty file detected!**\n\nThe uploaded file appears to be empty or contains no data columns. Please upload a file with actual data to proceed.")
+            st.info("💡 **Tips for a successful upload:**\n- Ensure your file has at least one column with data\n- Check that your Excel sheet isn't blank\n- Verify your CSV has headers and data rows")
+            st.session_state.df = None
+            return False
+            
+        elif df.shape[0] == 0:
+            st.warning("⚠️ **No data rows found!**\n\nYour file has column headers but no data rows. Please upload a file with actual data to analyze.")
+            st.info("💡 Make sure your file contains data rows below the headers.")
+            st.session_state.df = None
+            return False
+            
+        else:
+            # File is valid - update session state
+            st.session_state.df = df
+            st.session_state.uploaded_filename = uploaded_file.name
+            
+            # Clear previous analysis if requested (for new file uploads)
+            if clear_history:
+                st.session_state.chat_history = []
+                st.session_state.chart_data = []
+                
+            return True
+            
+    except Exception as e:
+        st.error(f"❌ **Unexpected error loading file:** {type(e).__name__}")
+        st.info("💡 Please check your file format and try again. Supported formats: CSV, XLSX, XLS")
+        with st.expander("🔍 Technical details (for debugging)"):
+            st.code(str(e))
+        st.session_state.df = None
+        return False
 
 
 def display_single_chart(chart_info, chart_id=None):
@@ -191,37 +243,9 @@ with st.sidebar:
         else:
             st.caption("Tip: create a `.env` with OPENAI_API_KEY=sk-...")
     
-    # Show usage stats
-    if hasattr(st.session_state, 'query_count'):
-        st.caption(f"Queries this session: {st.session_state.query_count}")
+    st.divider()
     
-    # Smart suggestions sidebar (only show when dataset is loaded)
-    if hasattr(st.session_state, 'df') and st.session_state.df is not None:
-        st.divider()
-        st.header("💡 Quick Analysis")
-        
-        from smart_suggestions import generate_smart_suggestions
-        suggestions = generate_smart_suggestions(st.session_state.df)
-        
-        if suggestions:
-            st.caption("Click to run these analyses:")
-            
-            # Show top 3 suggestions in sidebar
-            for i, suggestion in enumerate(suggestions[:3]):
-                # Create a more compact button display
-                if st.button(
-                    suggestion['title'], 
-                    key=f"sidebar_suggest_{i}",
-                    help=suggestion['description'],
-                    use_container_width=True
-                ):
-                    # Queue the suggested query for processing
-                    st.session_state.to_process = suggestion['query']
-                    st.rerun()
-            
-        else:
-            st.caption("Upload data to see suggestions")
-
+    
 st.title("📊 DS Auto Insights")
 st.subheader("Turn your raw datasets into structured insights instantly.")
 
@@ -239,65 +263,185 @@ if "current_response_charts" not in st.session_state:
     st.session_state.current_response_charts = []
 
 # ---------- File Uploader ----------
-uploaded_file = st.file_uploader("Upload your dataset (CSV/XLSX)", type=["csv", "xlsx", "xls"])
+# Show in main area when no dataset loaded, move to sidebar when dataset loaded
+if "df" not in st.session_state or st.session_state.df is None:
+    # Main area file uploader when no dataset
+    uploaded_file = st.file_uploader("Upload your dataset (CSV/XLSX)", type=["csv", "xlsx", "xls"])
+    
+    # Process the uploaded file
+    if process_uploaded_file(uploaded_file):
+        with st.expander("📊Dataset preview", expanded=False):
+            st.dataframe(st.session_state.df.head(), use_container_width=True)
+        with st.sidebar:
+            st.success(f"✅ Loaded {st.session_state.df.shape[0]:,} rows × {st.session_state.df.shape[1]:,} columns")
+            mem_mb = st.session_state.df.memory_usage(deep=True).sum() / (1024**2)
+            st.caption(f"Approx. memory usage: {mem_mb:.2f} MB")
+            st.divider()
+            st.rerun()
+else:
+    uploaded_file = None
+    with st.sidebar:
+        # Show usage stats
+        if hasattr(st.session_state, 'query_count'):
+            st.caption(f"Queries this session: {st.session_state.query_count}")
+            
+        # Show what the AI knows about this dataset
+        with st.expander("🧠 What I know about your dataset", expanded=False):
+            from planner_mcp import generate_dataset_context
+            context = generate_dataset_context(st.session_state.df)
+            st.code(context.strip(), language=None)
+            st.info("💡 I have immediate knowledge of all these columns and can suggest analysis without needing to explore first!")
+
+        # Detailed smart suggestions (different from the compact sidebar ones)
+        with st.expander("� Columns & Data Types"):
+            info = pd.DataFrame({
+                "column": st.session_state.df.columns,
+                "dtype": st.session_state.df.dtypes.astype(str).values,
+                "nulls": st.session_state.df.isna().sum().values
+            })
+            st.dataframe(info, use_container_width=True)
+            info = pd.DataFrame({
+                "column": st.session_state.df.columns,
+                "dtype": st.session_state.df.dtypes.astype(str).values,
+                "nulls": st.session_state.df.isna().sum().values
+            })
+            st.dataframe(info, use_container_width=True)
+
+        # File uploader in sidebar when dataset is loaded
+        st.divider()
+        st.header("📁 Change Dataset")
+        sidebar_uploaded_file = st.file_uploader(
+            "Upload a different dataset",
+            type=["csv", "xlsx", "xls"],
+            help="Replace current dataset with a new file",
+            key="sidebar_uploader"
+        )
+        
+        # Process sidebar file upload using the shared function
+        if process_uploaded_file(sidebar_uploaded_file, clear_history=True):
+            st.success(f"✅ New dataset loaded: {st.session_state.df.shape[0]:,} rows × {st.session_state.df.shape[1]:,} columns")
+            # Force refresh to update dataset context
+            st.rerun()
+
+        # Export & Reports section (only show when dataset is loaded)
+        if hasattr(st.session_state, 'df') and st.session_state.df is not None:
+            st.divider()
+            st.header("📄 Export & Reports")
+            
+            # Check if there's any analysis to export
+            has_analysis = hasattr(st.session_state, 'chat_history') and st.session_state.chat_history
+            
+            if has_analysis:
+                # Summary stats about the session
+                user_questions = [msg for msg in st.session_state.chat_history if msg["role"] == "user"]
+                assistant_responses = [msg for msg in st.session_state.chat_history if msg["role"] == "assistant"]
+                total_charts = sum(len(msg.get("charts", [])) for msg in assistant_responses)
+                
+                st.caption(f"💬 {len(user_questions)} questions • 📊 {total_charts} charts")
+            else:
+                st.caption("💡 Start analyzing to generate reports")
+            
+            filename = st.session_state.get('uploaded_filename', "dataset")
+            
+            # Export buttons in sidebar
+            if st.button("📝 Markdown", help="Export conversation as Markdown", use_container_width=True):
+                if not has_analysis:
+                    st.warning("⚠️ Can't generate report without analysis. Ask questions about your data first!")
+                else:
+                    try:
+                        markdown_content = generate_markdown_report(st.session_state.chat_history, filename)
+                        st.download_button(
+                            label="⬇️ Download Markdown",
+                            data=markdown_content,
+                            file_name=f"analysis_report_{filename}_{datetime.now().strftime('%Y%m%d_%H%M')}.md",
+                            mime="text/markdown",
+                            key="sidebar_md_download",
+                            use_container_width=True
+                        )
+                    except Exception as e:
+                        st.error(f"Error: {e}")
+            
+            if st.button("📊 PDF Report", help="Export full report with charts as PDF", use_container_width=True):
+                if not has_analysis:
+                    st.warning("⚠️ Can't generate report without analysis. Ask questions about your data first!")
+                else:
+                    try:
+                        with st.spinner("Generating PDF..."):
+                            pdf_bytes = export_pdf_report(st.session_state.chat_history, filename)
+                            if pdf_bytes:
+                                st.download_button(
+                                    label="⬇️ Download PDF",
+                                    data=pdf_bytes,
+                                    file_name=f"analysis_report_{filename}_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf",
+                                    mime="application/pdf",
+                                    key="sidebar_pdf_download",
+                                    use_container_width=True
+                                )
+                    except Exception as e:
+                        st.error(f"Error: {e}")
+            
+            if st.button("📈 Charts ZIP", help="Download all charts as images", use_container_width=True):
+                if not has_analysis:
+                    st.warning("⚠️ Can't export charts without analysis. Ask questions to generate charts first!")
+                else:
+                    # Check if any charts actually exist
+                    total_charts = sum(len(msg.get("charts", [])) for msg in st.session_state.chat_history if msg["role"] == "assistant")
+                    
+                    if total_charts == 0:
+                        st.warning("⚠️ No charts found to export! Ask questions that generate visualizations first.")
+                    else:
+                        try:
+                            import zipfile
+                            from io import BytesIO
+                            
+                            zip_buffer = BytesIO()
+                            with zipfile.ZipFile(zip_buffer, 'w') as zip_file:
+                                chart_count = 1
+                                for msg in st.session_state.chat_history:
+                                    if msg["role"] == "assistant" and "charts" in msg:
+                                        for chart in msg["charts"]:
+                                            try:
+                                                chart_bytes = export_chart_as_image(chart, format='png')
+                                                if chart_bytes:
+                                                    chart_title = chart.get('title', f'Chart_{chart_count}')
+                                                    safe_title = "".join(c for c in chart_title if c.isalnum() or c in (' ', '-', '_')).strip()
+                                                    zip_file.writestr(f"{chart_count:02d}_{safe_title}.png", chart_bytes)
+                                                    chart_count += 1
+                                            except Exception:
+                                                pass
+                            
+                            zip_buffer.seek(0)
+                            st.download_button(
+                                label="⬇️ Download Charts",
+                                data=zip_buffer.getvalue(),
+                                file_name=f"charts_{filename}_{datetime.now().strftime('%Y%m%d_%H%M')}.zip",
+                                mime="application/zip",
+                                key="sidebar_charts_download",
+                                use_container_width=True
+                            )
+                        except Exception as e:
+                            st.error(f"Error: {e}")
+            
+            # Dataset context and detailed analysis
+            st.divider()
+            
+            
 
 if uploaded_file is not None:
     try:
-        df = load_table(uploaded_file)
-        st.session_state.df = df
-        st.success(f"✅ Loaded {df.shape[0]:,} rows × {df.shape[1]:,} columns")
-        st.dataframe(df.head(), use_container_width=True)
-        mem_mb = df.memory_usage(deep=True).sum() / (1024**2)
-        st.caption(f"Approx. memory usage: {mem_mb:.2f} MB")
-        with st.sidebar:
-            # Show what the AI knows about this dataset
-            with st.expander("🧠 What I know about your dataset", expanded=False):
-                from planner_mcp import generate_dataset_context
-                context = generate_dataset_context(df)
-                st.code(context.strip(), language=None)
-                st.info("💡 I have immediate knowledge of all these columns and can suggest analysis without needing to explore first!")
-
-            # Smart suggestions
-            with st.expander("💡 Smart Analysis Suggestions", expanded=True):
-                from smart_suggestions import generate_smart_suggestions, format_suggestion_for_ui
-                suggestions = generate_smart_suggestions(df)
-                
-                if suggestions:
-                    st.markdown("**Recommended analysis based on your dataset:**")
-                    
-                    # Create columns for suggestions
-                    cols = st.columns(2)
-                    
-                    for i, suggestion in enumerate(suggestions):
-                        with cols[i % 2]:
-                            with st.container():
-                                st.markdown(f"**{suggestion['title']}**")
-                                st.caption(suggestion['description'])
-                                
-                                if st.button(
-                                    "Try this analysis", 
-                                    key=f"suggest_{i}",
-                                    help=suggestion['why']
-                                ):
-                                    # Queue the suggested query for processing
-                                    st.session_state.to_process = suggestion['query']
-                                    st.rerun()
-                                
-                                st.caption(f"💭 {suggestion['why']}")
-                                st.divider()
-                else:
-                    st.info("Upload a dataset to see intelligent analysis suggestions!")
-
-            with st.expander("Columns & dtypes"):
-                info = pd.DataFrame({
-                    "column": df.columns,
-                    "dtype": df.dtypes.astype(str).values,
-                    "nulls": df.isna().sum().values
-                })
-                st.dataframe(info, use_container_width=True)
-
+        # File processing is handled above, this section is no longer needed
+        pass
+            
     except Exception as e:
-        st.error(f"❌ Failed to load file: {e}")
+        # Handle other unexpected errors
+        st.error(f"❌ **Unexpected error loading file:** {type(e).__name__}")
+        st.info("💡 Please check your file format and try again. Supported formats: CSV, XLSX, XLS")
+        with st.expander("🔍 Technical details (for debugging)"):
+            st.code(str(e))
+        
+        # Reset session state
+        st.session_state.df = None
+        uploaded_file = None
 
 # Guard
 if not hasattr(st.session_state, 'df') or st.session_state.df is None:
@@ -311,6 +455,86 @@ tab1, tab2, tab3, tab4 = st.tabs(["Chat", "Summary", "Explore", "Reports"])
 
 with tab1:
     st.header("Chat")
+    
+    # Smart Suggestions Grid (2x3 format)
+    if hasattr(st.session_state, 'df') and st.session_state.df is not None:
+        suggestions = generate_smart_suggestions(st.session_state.df)
+        
+        if suggestions:
+            st.markdown("💡 **Quick Analysis Suggestions**")
+            
+            # Create 2x3 grid of suggestion buttons
+            col1, col2, col3 = st.columns(3)
+            
+            # First row
+            if len(suggestions) > 0:
+                with col1:
+                    if st.button(
+                        suggestions[0]['title'], 
+                        key="grid_suggest_0",
+                        help=suggestions[0]['description'],
+                        use_container_width=True
+                    ):
+                        st.session_state.to_process = suggestions[0]['query']
+                        st.rerun()
+            
+            if len(suggestions) > 1:
+                with col2:
+                    if st.button(
+                        suggestions[1]['title'], 
+                        key="grid_suggest_1",
+                        help=suggestions[1]['description'],
+                        use_container_width=True
+                    ):
+                        st.session_state.to_process = suggestions[1]['query']
+                        st.rerun()
+            
+            if len(suggestions) > 2:
+                with col3:
+                    if st.button(
+                        suggestions[2]['title'], 
+                        key="grid_suggest_2",
+                        help=suggestions[2]['description'],
+                        use_container_width=True
+                    ):
+                        st.session_state.to_process = suggestions[2]['query']
+                        st.rerun()
+            
+            # Second row
+            if len(suggestions) > 3:
+                with col1:
+                    if st.button(
+                        suggestions[3]['title'], 
+                        key="grid_suggest_3",
+                        help=suggestions[3]['description'],
+                        use_container_width=True
+                    ):
+                        st.session_state.to_process = suggestions[3]['query']
+                        st.rerun()
+            
+            if len(suggestions) > 4:
+                with col2:
+                    if st.button(
+                        suggestions[4]['title'], 
+                        key="grid_suggest_4",
+                        help=suggestions[4]['description'],
+                        use_container_width=True
+                    ):
+                        st.session_state.to_process = suggestions[4]['query']
+                        st.rerun()
+            
+            if len(suggestions) > 5:
+                with col3:
+                    if st.button(
+                        suggestions[5]['title'], 
+                        key="grid_suggest_5",
+                        help=suggestions[5]['description'],
+                        use_container_width=True
+                    ):
+                        st.session_state.to_process = suggestions[5]['query']
+                        st.rerun()
+            
+            st.divider()
 
     # 1) Replay existing chat history first (before processing new message)
     for i, msg in enumerate(st.session_state.chat_history):
@@ -383,104 +607,6 @@ with tab1:
         if current_charts:
             assistant_message["charts"] = current_charts
         st.session_state.chat_history.append(assistant_message)
-
-    # Export Section
-    if st.session_state.chat_history:
-        st.divider()
-        st.subheader("📄 Export & Reports")
-        
-        col1, col2, col3, col4 = st.columns(4)
-        
-        with col1:
-            if st.button("📝 Export Markdown", help="Download conversation as Markdown"):
-                try:
-                    filename = uploaded_file.name if uploaded_file else "dataset"
-                    markdown_content = generate_markdown_report(
-                        st.session_state.chat_history, 
-                        filename
-                    )
-                    st.download_button(
-                        label="⬇️ Download Markdown",
-                        data=markdown_content,
-                        file_name=f"analysis_report_{filename}_{datetime.now().strftime('%Y%m%d_%H%M')}.md",
-                        mime="text/markdown"
-                    )
-                except Exception as e:
-                    st.error(f"Error generating markdown: {e}")
-        
-        with col2:
-            if st.button("📊 Export PDF", help="Download full report with charts as PDF"):
-                try:
-                    filename = uploaded_file.name if uploaded_file else "dataset"
-                    with st.spinner("Generating PDF report..."):
-                        pdf_bytes = export_pdf_report(
-                            st.session_state.chat_history,
-                            filename
-                        )
-                        if pdf_bytes:
-                            st.download_button(
-                                label="⬇️ Download PDF",
-                                data=pdf_bytes,
-                                file_name=f"analysis_report_{filename}_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf",
-                                mime="application/pdf"
-                            )
-                except Exception as e:
-                    st.error(f"Error generating PDF: {e}")
-        
-        with col3:
-            if st.button("📈 Export Charts", help="Download all charts as images"):
-                try:
-                    import zipfile
-                    from io import BytesIO
-                    
-                    # Create a zip file with all charts
-                    zip_buffer = BytesIO()
-                    with zipfile.ZipFile(zip_buffer, 'w') as zip_file:
-                        chart_count = 1
-                        for msg in st.session_state.chat_history:
-                            if msg["role"] == "assistant" and "charts" in msg:
-                                for chart in msg["charts"]:
-                                    try:
-                                        chart_bytes = export_chart_as_image(chart, format='png')
-                                        if chart_bytes:
-                                            chart_title = chart.get('title', f'Chart_{chart_count}')
-                                            safe_title = "".join(c for c in chart_title if c.isalnum() or c in (' ', '-', '_')).strip()
-                                            zip_file.writestr(f"{chart_count:02d}_{safe_title}.png", chart_bytes)
-                                            chart_count += 1
-                                    except Exception as e:
-                                        st.warning(f"Could not export chart: {e}")
-                    
-                    zip_buffer.seek(0)
-                    filename = uploaded_file.name if uploaded_file else "dataset"
-                    st.download_button(
-                        label="⬇️ Download Charts ZIP",
-                        data=zip_buffer.getvalue(),
-                        file_name=f"charts_{filename}_{datetime.now().strftime('%Y%m%d_%H%M')}.zip",
-                        mime="application/zip"
-                    )
-                except Exception as e:
-                    st.error(f"Error exporting charts: {e}")
-        
-        with col4:
-            if st.button("📋 Export Data", help="Download session data as JSON"):
-                try:
-                    # Extract all charts from chat history
-                    all_charts = []
-                    for msg in st.session_state.chat_history:
-                        if msg["role"] == "assistant" and "charts" in msg:
-                            all_charts.extend(msg["charts"])
-                    
-                    session_data = export_session_data(st.session_state.chat_history, all_charts)
-                    filename = uploaded_file.name if uploaded_file else "dataset"
-                    
-                    st.download_button(
-                        label="⬇️ Download JSON",
-                        data=json.dumps(session_data, indent=2),
-                        file_name=f"session_data_{filename}_{datetime.now().strftime('%Y%m%d_%H%M')}.json",
-                        mime="application/json"
-                    )
-                except Exception as e:
-                    st.error(f"Error exporting session data: {e}")
 
     # 3) Place the chat input at the END. When user submits, queue it + rerun.
     user_query = st.chat_input("Ask a question about your data", key="chat_input_bottom")
