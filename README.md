@@ -155,6 +155,10 @@ This is a learning project and proof-of-concept. It's not intended for productio
 
 MIT License
 
+## 🙏 Acknowledgements
+
+Special thanks to **ArtleSa** (u/ArtleSa on Reddit) for the landing page template inspiration.
+
 ---
 
 *An experimental tool for exploring data through conversation.*
