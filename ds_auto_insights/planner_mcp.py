@@ -113,14 +113,14 @@ def run_mcp_planner(user_query: str, df: pd.DataFrame, chat_history: List[Dict] 
     # Data transformation tools
     create_column_tool = CreateColumnTool(df=df)
     
-    # Data Cleaning Tools (Phase 1 Implementation - Competitive Advantage)
+    # Data Cleaning Tools
     analyze_missing_tool = AnalyzeMissingDataTool(df=df)
     detect_outliers_tool = DetectOutliersTool(df=df)
     find_duplicates_tool = FindDuplicatesTool(df=df)
     apply_cleaning_tool = ApplyBasicCleaningTool(df=df)
     suggest_cleaning_tool = SuggestDataCleaningActionsTool(df=df)
     
-    # Data Imputation Tools (Advanced Missing Data Handling)
+    # Data Imputation Tools
     suggest_imputation_tool = SuggestImputationStrategiesTool(df=df)
     apply_imputation_tool = ApplyImputationTool(df=df)
     

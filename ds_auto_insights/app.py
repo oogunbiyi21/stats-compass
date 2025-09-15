@@ -43,7 +43,7 @@ except ImportError:
     pass
 
 with st.sidebar:
-    st.header("⚙️ Diagnostics")
+    st.header("⚙️ Diagnostics")     
     
     # Environment detection
     is_cloud = hasattr(st, "secrets") and "localhost" not in st.context.headers.get("host", "")
@@ -139,6 +139,14 @@ else:
             help="Replace current dataset with a new file",
             key="sidebar_uploader"
         )
+
+        filename = st.session_state.get('uploaded_filename', 'Unknown file')
+        st.success(f"📊 **Current Dataset**")
+        st.markdown(f"**📁 {filename}**")
+        st.caption(f"{st.session_state.df.shape[0]:,} rows × {st.session_state.df.shape[1]:,} columns")
+        mem_mb = st.session_state.df.memory_usage(deep=True).sum() / (1024**2)
+        st.caption(f"Memory: {mem_mb:.2f} MB")
+        
         
         # Process sidebar file upload using the shared function
         if process_uploaded_file(sidebar_uploaded_file, clear_history=True):
@@ -276,6 +284,49 @@ with tab1:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
             
+            # Display intermediate steps for assistant messages
+            if msg["role"] == "assistant" and "intermediate_steps" in msg:
+                st.markdown("---")
+                st.markdown("🔧 **Analysis Steps:**")
+                
+                for step_i, step in enumerate(msg["intermediate_steps"], 1):
+                    try:
+                        action, observation = step
+                        tool_name = getattr(action, 'tool', 'unknown_tool')
+                        tool_input = getattr(action, "tool_input", {})
+                        
+                        # Create a more readable display
+                        with st.expander(f"Step {step_i}: {tool_name}", expanded=False):
+                            if tool_input:
+                                st.markdown("**Input:**")
+                                st.json(tool_input)
+                            st.markdown("**Result:**")
+                            # Truncate very long observations
+                            obs_str = str(observation)
+                            if len(obs_str) > 1000:
+                                st.text_area(
+                                    "Tool output (truncated)", 
+                                    value=obs_str[:1000] + "...", 
+                                    height=120, 
+                                    key=f"history_obs_{i}_{step_i}_truncated",
+                                    label_visibility="hidden"
+                                )
+                                st.caption("(Output truncated for display)")
+                            else:
+                                st.text_area(
+                                    "Tool output", 
+                                    value=obs_str, 
+                                    height=120, 
+                                    key=f"history_obs_{i}_{step_i}_full",
+                                    label_visibility="hidden"
+                                )
+                    except Exception as e:
+                        with st.expander(f"Step {step_i}: (parsing error)", expanded=False):
+                            st.text(f"Error: {e}")
+                            st.text(str(step))
+                
+                st.markdown("---")
+            
             # Display charts that were created with this message
             if msg["role"] == "assistant" and "charts" in msg:
                 for j, chart_info in enumerate(msg["charts"]):
@@ -325,22 +376,13 @@ with tab1:
                 # Clear the current response charts since they're now displayed
                 st.session_state.current_response_charts = []
 
-            # Optional: show intermediate steps
-            if isinstance(result, dict) and result.get("intermediate_steps"):
-                with st.expander("🔎 Intermediate steps"):
-                    for i, step in enumerate(result["intermediate_steps"], 1):
-                        try:
-                            action, observation = step
-                            st.markdown(f"**Step {i}: {getattr(action, 'tool', 'tool')}**")
-                            st.code(getattr(action, "tool_input", {}), language="json")
-                            st.text_area("Observation", value=str(observation), height=120, key=f"obs_{i}")
-                        except Exception:
-                            st.text(str(step))
-
-        # Persist assistant reply with any charts that were created
+        # Persist assistant reply with any charts and intermediate steps that were created
         assistant_message = {"role": "assistant", "content": final_text}
         if current_charts:
             assistant_message["charts"] = current_charts
+        # Store intermediate steps for replay in chat history
+        if isinstance(result, dict) and result.get("intermediate_steps"):
+            assistant_message["intermediate_steps"] = result["intermediate_steps"]
         st.session_state.chat_history.append(assistant_message)
         
         # Track token usage and cost for this interaction
@@ -348,10 +390,6 @@ with tab1:
             usage_stats = track_usage(queued, final_text, model="gpt-4o")  # Adjust model as needed
             update_session_usage(usage_stats)
             
-            # Show usage for this query in an expander
-            with st.expander("💰 Usage for this query"):
-                st.caption(f"Tokens: {usage_stats['total_tokens']:,} | Cost: ${usage_stats['cost']:.4f}")
-                st.caption(f"Input: {usage_stats['input_tokens']} | Output: {usage_stats['output_tokens']}")
             
             # Force rerun to update sidebar usage display
             st.rerun()
