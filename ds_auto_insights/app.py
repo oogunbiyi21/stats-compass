@@ -7,16 +7,16 @@ from datetime import datetime
 from dotenv import load_dotenv
 
 # ---- Local modules ----
-from util import (
-    process_uploaded_file,
-    display_single_chart,
-    summarise_dataset,
-    key_trends_numeric_only,
-    suggest_visualisations,
+from utils.data_loading import process_uploaded_file
+from utils.visualization import display_single_chart
+from utils.analysis import summarise_dataset, key_trends_numeric_only, suggest_visualisations
+from utils.token_tracking import (
     track_usage,
-    update_session_usage,
+    update_session_usage, 
     get_usage_summary,
-    check_usage_limits,
+    check_usage_limits
+)
+from utils.export_utils import (
     render_session_summary,
     render_export_buttons,
     render_text_export_buttons,
