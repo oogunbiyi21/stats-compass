@@ -110,6 +110,40 @@ def export_chart_as_image(chart_info: Dict[str, Any], format: str = "png") -> by
                 )
             else:
                 raise ValueError("No correlation matrix data available")
+        elif chart_type == 't_test':
+            # Use the stored plotly figure directly but ensure proper template for export
+            fig = chart_info.get('fig')
+            if not fig:
+                raise ValueError("No statistical test figure available")
+            
+            # Apply export-friendly template and colors
+            fig.update_layout(
+                template='plotly_white',
+                plot_bgcolor='white',
+                paper_bgcolor='white',
+                font=dict(color='black', size=12)
+            )
+            
+            # Apply vibrant colors that work well in PDF
+            colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b']
+            
+            # Update traces with better colors and borders for PDF
+            for i, trace in enumerate(fig.data):
+                color = colors[i % len(colors)]
+                
+                if hasattr(trace, 'marker'):
+                    # For scatter plots, histograms
+                    fig.data[i].marker.update(
+                        color=color,
+                        line=dict(width=1, color='black')
+                    )
+                elif hasattr(trace, 'fillcolor'):
+                    # For box plots
+                    fig.data[i].update(
+                        fillcolor=color,
+                        line=dict(color='black', width=2),
+                        marker=dict(color='black', size=4)  # outlier markers
+                    )
         else:
             raise ValueError(f"Unsupported chart type: {chart_type}")
         
