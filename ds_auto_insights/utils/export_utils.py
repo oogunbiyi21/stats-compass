@@ -270,3 +270,56 @@ def render_report_preview(chat_history: list, filename: str):
                 
         if stats["total_charts"] > 0:
             st.info(f"💡 This session created {stats['total_charts']} visualizations that will be included in exported reports.")
+
+
+def create_narrative_summary(chat_history: List[Dict]) -> str:
+    """Create an AI-generated narrative summary of the analysis"""
+    
+    # Extract key insights from the conversation
+    insights = []
+    charts_created = []
+    
+    for msg in chat_history:
+        if msg["role"] == "assistant":
+            # Extract key findings (simplified heuristic)
+            content = msg["content"]
+            if "correlation" in content.lower():
+                insights.append("Correlation analysis was performed")
+            if "distribution" in content.lower():
+                insights.append("Data distribution was analyzed")
+            if "top" in content.lower() and ("categories" in content.lower() or "values" in content.lower()):
+                insights.append("Top categories were identified")
+            
+            # Count charts
+            if "charts" in msg:
+                charts_created.extend([chart.get('type') for chart in msg["charts"]])
+    
+    # Create narrative
+    narrative = f"""## Key Insights Summary
+
+This analysis session generated {len(insights)} key insights and {len(charts_created)} visualizations:
+
+"""
+    
+    if insights:
+        narrative += "**Analysis performed:**\n"
+        for insight in insights:
+            narrative += f"- {insight}\n"
+        narrative += "\n"
+    
+    if charts_created:
+        narrative += "**Visualizations created:**\n"
+        chart_types = list(set(charts_created))
+        for chart_type in chart_types:
+            count = charts_created.count(chart_type)
+            narrative += f"- {count} {chart_type} chart(s)\n"
+        narrative += "\n"
+    
+    narrative += """**Recommendations:**
+- Review the visualizations to identify patterns and outliers
+- Consider the relationships discovered between variables
+- Use these insights to inform business decisions
+- Share this report with stakeholders for further discussion
+"""
+    
+    return narrative
