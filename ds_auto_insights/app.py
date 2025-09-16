@@ -341,25 +341,22 @@ with tab1:
             st.markdown(queued)
         st.session_state.chat_history.append({"role": "user", "content": queued})
 
-        # Assistant "thinking…" placeholder
+        # Assistant response with spinner
         with st.chat_message("assistant"):
-            placeholder = st.empty()
-            placeholder.markdown("⏳ Thinking...")
+            with st.spinner("Analyzing your data and generating insights..."):
+                # Call your agent WITH chat history for context
+                try:
+                    result = run_mcp_planner(
+                        queued, 
+                        df_use, 
+                        chat_history=st.session_state.chat_history[:-1]  # Exclude the current user message
+                    )
+                    final_text = result.get("output", "(No output)")
+                except Exception as e:
+                    final_text = f"❌ Agent error: {e}"
+                    result = {}
 
-            # Call your agent WITH chat history for context
-            try:
-                result = run_mcp_planner(
-                    queued, 
-                    df_use, 
-                    chat_history=st.session_state.chat_history[:-1]  # Exclude the current user message
-                )
-                final_text = result.get("output", "(No output)")
-            except Exception as e:
-                final_text = f"❌ Agent error: {e}"
-                result = {}
-
-            # Replace "thinking" with the actual answer
-            placeholder.empty()
+            # Display the actual response
             st.markdown(final_text)
 
             # Display any charts that were created during this response
