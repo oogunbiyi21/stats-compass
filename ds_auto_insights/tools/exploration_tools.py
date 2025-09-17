@@ -5,6 +5,8 @@ Provides comprehensive data exploration and analysis capabilities.
 """
 
 import re
+import psutil
+import os
 from typing import Type, Optional, List
 import pandas as pd
 import numpy as np
@@ -87,27 +89,29 @@ class RunPandasQueryToolInput(BaseModel):
 
 class RunPandasQueryTool(BaseTool):
     name: str = "run_pandas_query"
-    description: str = "Run a safe, read-only Python expression on the dataframe `df` (e.g. df.describe(), df['col'].mean())"
+    description: str = "Run a safe Python expression on the dataframe `df` (e.g. df.describe(), df['col'].mean()). Can create variables for complex analysis."
     args_schema = RunPandasQueryToolInput
 
     _df: pd.DataFrame = PrivateAttr()
+    _user_vars: dict = PrivateAttr(default_factory=dict)
 
     def __init__(self, df: pd.DataFrame):
         super().__init__()
         self._df = df
+        self._user_vars = {}
 
     def _is_safe_expression(self, query: str) -> bool:
-        # Check for multi-line queries (assignments typically span multiple lines)
+        """Enhanced validation that allows safe assignments while blocking dangerous patterns."""
+        # Check for multi-line queries 
         lines = [line.strip() for line in query.strip().split('\n') if line.strip()]
         
-        if len(lines) > 1:
-            # Multi-line queries are not allowed
+        if len(lines) > 3:  # Allow a few lines for complex analysis
             return False
         
-        # For single-line queries, use more permissive validation
-        banned_patterns: list[str] = [
+        # Critical security patterns (always blocked)
+        critical_patterns = [
             r"__.*?__",          # dunder methods
-            r"\bimport\b",       # import statements
+            r"\bimport\b",       # import statements  
             r"\bexec\b",         # exec function
             r"\beval\b",         # eval function
             r"\bos\b",           # os module
@@ -117,42 +121,103 @@ class RunPandasQueryTool(BaseTool):
             r"\bglobals\(\)",    # globals access
             r"\blocals\(\)",     # locals access
             r"\bdel\b",          # del statement
-            # Only block actual variable assignments (not parameter passing)
-            r"\b[a-zA-Z_][a-zA-Z0-9_]*\s*=(?!=)(?!\s*[a-zA-Z0-9_.\[\]'\"]+)",  # variable = value (but not func(param=value))
-            r"\+=",              # augmented assignment
-            r"-=",               # augmented assignment  
-            r"\*=",              # augmented assignment
-            r"/=",               # augmented assignment
         ]
         
-        # Check the single line
-        line = lines[0]
-        return not any(re.search(pattern, line) for pattern in banned_patterns)
+        # Dangerous assignment patterns (protect core objects)
+        dangerous_assignments = [
+            r"\bdf\s*=(?!=)",           # Don't overwrite main dataframe
+            r"\bpd\s*=(?!=)",           # Don't overwrite pandas
+            r"\bnp\s*=(?!=)",           # Don't overwrite numpy
+            r".*=.*\.random\.",         # Block random data generation
+            r".*=.*range\(\s*\d{6,}",   # Block large ranges (100k+ items)
+            r".*=.*zeros\(\s*\d{6,}",   # Block large arrays
+            r".*=.*ones\(\s*\d{6,}",    # Block large arrays
+        ]
+        
+        full_query = ' '.join(lines)
+        
+        # Check critical patterns
+        if any(re.search(pattern, full_query, re.IGNORECASE) for pattern in critical_patterns):
+            return False
+            
+        # Check dangerous assignments
+        if any(re.search(pattern, full_query, re.IGNORECASE) for pattern in dangerous_assignments):
+            return False
+            
+            return True
 
     def _run(self, query: str) -> str:
         if not self._is_safe_expression(query):
             # Provide specific guidance for common issues
-            if "=" in query and "==" not in query:
-                return "❌ Assignment operations are not allowed. This tool is for read-only data exploration. " \
-                       "If you need to create a derived column (like opponent), use groupby_aggregate or top_categories tools instead."
+            if any(pattern in query.lower() for pattern in ['df =', 'pd =', 'np =']):
+                return "❌ Cannot overwrite core objects (df, pd, np). These are protected for system stability."
+            elif 'random' in query.lower() and '=' in query:
+                return "❌ Random data generation is not allowed to prevent memory issues."
+            elif re.search(r'range\(\s*\d{6,}', query) or re.search(r'zeros\(\s*\d{6,}', query):
+                return "❌ Large data structure creation is blocked to prevent memory issues."
             else:
-                return "❌ Unsafe query detected. Only simple pandas expressions are allowed."
+                return "❌ Unsafe query detected. Check for imports, file operations, or dangerous functions."
+
+        # Memory monitoring
+        process = psutil.Process(os.getpid())
+        memory_before = process.memory_info().rss / 1024 / 1024  # MB
 
         try:
-            # Set pandas display options to show columns (but limit for safety)
-            max_cols = 100 if len(self._df.columns) <= 100 else 50
+            # Set pandas display options
+            max_cols = 50
             with pd.option_context('display.max_columns', max_cols, 
                                    'display.width', None, 
                                    'display.max_colwidth', 50):
-                local_vars: dict = {"df": self._df, "pd": pd, "np": np}
-                result = eval(query, {}, local_vars)
-                return str(result)
+                
+                # Create sandboxed namespace
+                safe_vars = {
+                    "df": self._df, 
+                    "pd": pd, 
+                    "np": np,
+                    **self._user_vars  # Include user variables from previous queries
+                }
+                
+                # Execute query
+                result = eval(query, {"__builtins__": {}}, safe_vars)
+                
+                # Update user variables (but protect core objects)
+                protected_keys = {'df', 'pd', 'np'}
+                for key, value in safe_vars.items():
+                    if key not in protected_keys and key not in {'df', 'pd', 'np'}:
+                        # Only store reasonable-sized objects
+                        try:
+                            if hasattr(value, '__sizeof__'):
+                                size_mb = value.__sizeof__() / 1024 / 1024
+                                if size_mb < 50:  # Max 50MB per variable
+                                    self._user_vars[key] = value
+                        except:
+                            # If we can't check size, store it anyway (probably safe)
+                            self._user_vars[key] = value
+                
+                # Check memory usage after execution
+                memory_after = process.memory_info().rss / 1024 / 1024  # MB
+                memory_used = memory_after - memory_before
+                
+                if memory_used > 100:  # More than 100MB used
+                    # Clear user variables to free memory
+                    self._user_vars.clear()
+                    return f"⚠️ Query used {memory_used:.1f}MB memory. User variables cleared for safety.\nResult: {str(result)}"
+                
+                # Show helpful info about stored variables
+                var_info = ""
+                if self._user_vars:
+                    var_names = list(self._user_vars.keys())
+                    var_info = f"\n💾 Stored variables: {var_names}"
+                
+                return f"{str(result)}{var_info}"
+                
         except Exception as e:
             error_msg = str(e)
             if "invalid syntax" in error_msg.lower():
-                return f"❌ Syntax error: The query contains invalid Python syntax. " \
-                       f"Please use simple pandas expressions like df['column'].unique() or df.describe(). " \
-                       f"Error details: {error_msg}"
+                return f"❌ Syntax error: {error_msg}"
+            elif "name" in error_msg.lower() and "not defined" in error_msg.lower():
+                available_vars = list(self._user_vars.keys()) + ['df', 'pd', 'np']
+                return f"❌ Variable not found: {error_msg}\nAvailable variables: {available_vars}"
             else:
                 return f"❌ Error running query: {error_msg}"
 
