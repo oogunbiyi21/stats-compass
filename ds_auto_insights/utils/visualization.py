@@ -161,6 +161,30 @@ def display_single_chart(chart_info: Dict[str, Any], chart_id: Optional[str] = N
         except Exception as e:
             st.error(f"Error displaying T-Test chart: {e}")
             
+    elif chart_type == 'z_test':
+        st.subheader(f"📊 {title}")
+        try:
+            # Get the plotly figure from chart_info
+            fig = chart_info.get('fig')
+            if fig:
+                st.plotly_chart(fig, use_container_width=True, key=f"ztest_{chart_id}")
+            else:
+                st.warning("Z-Test chart figure not available for display")
+        except Exception as e:
+            st.error(f"Error displaying Z-Test chart: {e}")
+            
+    elif chart_type == 'chi_square_test':
+        st.subheader(f"📊 {title}")
+        try:
+            # Get the plotly figure from chart_info
+            fig = chart_info.get('fig')
+            if fig:
+                st.plotly_chart(fig, use_container_width=True, key=f"chisquare_{chart_id}")
+            else:
+                st.warning("Chi-Square Test chart figure not available for display")
+        except Exception as e:
+            st.error(f"Error displaying Chi-Square Test chart: {e}")
+            
     else:
         st.warning(f"Chart type '{chart_type}' not supported yet")
         st.json(chart_info)  # Show raw data for debugging

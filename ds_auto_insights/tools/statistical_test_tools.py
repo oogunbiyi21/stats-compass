@@ -658,3 +658,273 @@ class RunZTestTool(BaseTool):
               column2: Optional[str] = None, population_std: Optional[float] = None, 
               alpha: float = 0.05):
         raise NotImplementedError("Async not supported")
+
+
+class ChiSquareTestInput(BaseModel):
+    test_type: str = Field(default="independence", description="Type of chi-square test: 'independence' or 'goodness_of_fit'")
+    column1: str = Field(description="First categorical column for independence test, or the column to test for goodness of fit")
+    column2: Optional[str] = Field(default=None, description="Second categorical column for independence test (not used for goodness of fit)")
+    expected_frequencies: Optional[List[float]] = Field(default=None, description="Expected frequencies for goodness of fit test (if not provided, equal frequencies assumed)")
+    alpha: float = Field(default=0.05, description="Significance level (default 0.05)")
+
+
+class RunChiSquareTestTool(BaseTool):
+    name: str = "run_chi_square_test"
+    description: str = "Perform chi-square tests for independence (relationship between two categorical variables) or goodness of fit (whether data follows expected distribution). Includes comprehensive statistical analysis and visualizations."
+    args_schema: Type[BaseModel] = ChiSquareTestInput
+
+    _df: pd.DataFrame = PrivateAttr()
+
+    def __init__(self, df: pd.DataFrame):
+        super().__init__()
+        self._df = df
+
+    def _run(self, test_type: str = "independence", column1: str = None, column2: str = None, 
+             expected_frequencies: Optional[List[float]] = None, alpha: float = 0.05) -> str:
+        try:
+            # Validate inputs
+            if column1 not in self._df.columns:
+                return f"❌ Column '{column1}' not found. Available columns: {list(self._df.columns)}"
+            
+            if test_type not in ["independence", "goodness_of_fit"]:
+                return f"❌ Invalid test_type '{test_type}'. Use: 'independence' or 'goodness_of_fit'"
+
+            result_lines = [f"📊 **Chi-Square Test Analysis**\n"]
+            
+            if test_type == "independence":
+                # Chi-square test of independence
+                if not column2 or column2 not in self._df.columns:
+                    return f"❌ For independence test, specify a valid column2"
+                
+                # Create contingency table
+                contingency_table = pd.crosstab(self._df[column1], self._df[column2])
+                
+                # Check if we have enough data
+                if contingency_table.size == 0:
+                    return f"❌ No data available for contingency table"
+                
+                # Check for minimum expected frequencies (rule of thumb: all expected frequencies >= 5)
+                chi2_stat, p_value, dof, expected_freq = stats.chi2_contingency(contingency_table)
+                
+                # Check assumptions
+                low_expected = (expected_freq < 5).sum()
+                total_cells = expected_freq.size
+                low_expected_pct = (low_expected / total_cells) * 100
+                
+                result_lines.extend([
+                    f"**Test Type:** Chi-square test of independence",
+                    f"**Null Hypothesis:** {column1} and {column2} are independent (no relationship)",
+                    f"**Alternative Hypothesis:** {column1} and {column2} are not independent (there is a relationship)",
+                    f"",
+                    f"📈 **Contingency Table:**",
+                    f"```",
+                    str(contingency_table),
+                    f"```",
+                    f"",
+                    f"🧮 **Test Results:**",
+                    f"  • Chi-square statistic: {chi2_stat:.4f}",
+                    f"  • p-value: {p_value:.6f}",
+                    f"  • Degrees of freedom: {dof}",
+                    f"  • Sample size: {contingency_table.sum().sum():,}",
+                ])
+                
+                # Calculate effect size (Cramér's V)
+                n = contingency_table.sum().sum()
+                cramers_v = np.sqrt(chi2_stat / (n * (min(contingency_table.shape) - 1)))
+                
+                result_lines.extend([
+                    f"  • Cramér's V (effect size): {cramers_v:.4f}",
+                    f"",
+                    f"📋 **Expected Frequencies:**",
+                    f"```",
+                    str(pd.DataFrame(expected_freq, 
+                                   index=contingency_table.index, 
+                                   columns=contingency_table.columns).round(2)),
+                    f"```",
+                ])
+                
+                # Create visualization - heatmap of observed vs expected
+                fig = go.Figure()
+                
+                # Add heatmap of observed frequencies
+                fig.add_trace(go.Heatmap(
+                    z=contingency_table.values,
+                    x=contingency_table.columns,
+                    y=contingency_table.index,
+                    text=contingency_table.values,
+                    texttemplate="%{text}",
+                    textfont={"size": 12},
+                    colorscale='Blues',
+                    name="Observed Frequencies",
+                    hovertemplate='<b>%{y}</b> & <b>%{x}</b><br>Observed: %{z}<extra></extra>'
+                ))
+                
+                fig.update_layout(
+                    title=f"Chi-Square Independence Test: {column1} vs {column2}<br>Observed Frequencies",
+                    xaxis_title=column2,
+                    yaxis_title=column1,
+                    height=max(400, len(contingency_table.index) * 50),
+                    width=max(600, len(contingency_table.columns) * 100)
+                )
+                
+            elif test_type == "goodness_of_fit":
+                # Chi-square goodness of fit test
+                # Get value counts for the column
+                observed_freq = self._df[column1].value_counts().sort_index()
+                categories = observed_freq.index.tolist()
+                observed_values = observed_freq.values
+                n_total = observed_values.sum()
+                
+                if len(observed_values) < 2:
+                    return f"❌ Need at least 2 categories for goodness of fit test, found {len(observed_values)}"
+                
+                # Determine expected frequencies
+                if expected_frequencies is not None:
+                    if len(expected_frequencies) != len(observed_values):
+                        return f"❌ Expected frequencies length ({len(expected_frequencies)}) must match number of categories ({len(observed_values)})"
+                    
+                    # Normalize expected frequencies to sum to total observations
+                    expected_prop = np.array(expected_frequencies) / np.sum(expected_frequencies)
+                    expected_values = expected_prop * n_total
+                    expected_note = "Using provided expected frequencies"
+                else:
+                    # Assume equal frequencies (uniform distribution)
+                    expected_values = np.full(len(observed_values), n_total / len(observed_values))
+                    expected_note = "Using equal expected frequencies (uniform distribution)"
+                
+                # Perform chi-square test
+                chi2_stat, p_value = stats.chisquare(observed_values, expected_values)
+                dof = len(observed_values) - 1
+                
+                # Check assumptions
+                low_expected = (expected_values < 5).sum()
+                low_expected_pct = (low_expected / len(expected_values)) * 100
+                
+                result_lines.extend([
+                    f"**Test Type:** Chi-square goodness of fit test",
+                    f"**Null Hypothesis:** Data follows the expected distribution",
+                    f"**Alternative Hypothesis:** Data does not follow the expected distribution", 
+                    f"",
+                    f"📈 **Frequency Comparison:**",
+                ])
+                
+                # Create comparison table
+                comparison_df = pd.DataFrame({
+                    'Category': categories,
+                    'Observed': observed_values,
+                    'Expected': expected_values.round(2),
+                    'Difference': (observed_values - expected_values).round(2),
+                    'Contribution to Chi²': ((observed_values - expected_values)**2 / expected_values).round(4)
+                })
+                
+                result_lines.extend([
+                    f"```",
+                    str(comparison_df),
+                    f"```",
+                    f"",
+                    f"🧮 **Test Results:**",
+                    f"  • Chi-square statistic: {chi2_stat:.4f}",
+                    f"  • p-value: {p_value:.6f}",
+                    f"  • Degrees of freedom: {dof}",
+                    f"  • Sample size: {n_total:,}",
+                    f"  • {expected_note}",
+                ])
+                
+                # Create bar chart comparing observed vs expected
+                fig = go.Figure()
+                
+                fig.add_trace(go.Bar(
+                    x=categories,
+                    y=observed_values,
+                    name='Observed',
+                    marker_color='lightblue',
+                    opacity=0.8
+                ))
+                
+                fig.add_trace(go.Bar(
+                    x=categories,
+                    y=expected_values,
+                    name='Expected',
+                    marker_color='orange',
+                    opacity=0.8
+                ))
+                
+                fig.update_layout(
+                    title=f"Chi-Square Goodness of Fit Test: {column1}<br>Observed vs Expected Frequencies",
+                    xaxis_title=column1,
+                    yaxis_title="Frequency",
+                    barmode='group',
+                    showlegend=True,
+                    height=500
+                )
+            
+            # Interpret results (common for both tests)
+            result_lines.extend([
+                f"",
+                f"🎯 **Statistical Interpretation:**"
+            ])
+            
+            if p_value < alpha:
+                result_lines.append(f"  • **Significant result** (p < {alpha}): Reject null hypothesis")
+                if test_type == "independence":
+                    result_lines.append(f"  • There IS a statistically significant relationship between {column1} and {column2}")
+                else:
+                    result_lines.append(f"  • The data does NOT follow the expected distribution")
+            else:
+                result_lines.append(f"  • **Not significant** (p ≥ {alpha}): Fail to reject null hypothesis")
+                if test_type == "independence":
+                    result_lines.append(f"  • There is NO statistically significant relationship between {column1} and {column2}")
+                else:
+                    result_lines.append(f"  • The data DOES follow the expected distribution")
+            
+            # Effect size interpretation (for independence test)
+            if test_type == "independence":
+                if cramers_v < 0.1:
+                    effect_magnitude = "negligible"
+                elif cramers_v < 0.3:
+                    effect_magnitude = "small"
+                elif cramers_v < 0.5:
+                    effect_magnitude = "medium"
+                else:
+                    effect_magnitude = "large"
+                
+                result_lines.append(f"  • **Effect size (Cramér's V):** {effect_magnitude} ({cramers_v:.3f})")
+            
+            # Assumptions check
+            result_lines.extend([
+                f"",
+                f"⚠️ **Assumptions:**",
+                f"  • Observations are independent",
+                f"  • Data consists of frequencies/counts",
+                f"  • Expected frequency in each cell ≥ 5 (ideally)"
+            ])
+            
+            if low_expected > 0:
+                result_lines.append(f"  • ⚠️ Warning: {low_expected} cells ({low_expected_pct:.1f}%) have expected frequency < 5")
+                result_lines.append(f"    Consider combining categories or using exact tests for small samples")
+            
+            # Store chart for display
+            chart_info = {
+                'type': 'chi_square_test',
+                'title': f"Chi-Square Test: {column1}" + (f" vs {column2}" if test_type == "independence" else ""),
+                'data': None,
+                'fig': fig,
+                'chart_config': {
+                    'chart_type': 'statistical_test',
+                    'test_type': test_type
+                }
+            }
+            
+            if hasattr(st, 'session_state'):
+                if 'current_response_charts' not in st.session_state:
+                    st.session_state.current_response_charts = []
+                st.session_state.current_response_charts.append(chart_info)
+            
+            return "\n".join(result_lines)
+            
+        except Exception as e:
+            return f"❌ Error in chi-square test analysis: {str(e)}"
+
+    def _arun(self, test_type: str = "independence", column1: str = None, column2: str = None, 
+              expected_frequencies: Optional[List[float]] = None, alpha: float = 0.05):
+        raise NotImplementedError("Async not supported")

@@ -35,7 +35,8 @@ from ds_auto_insights.tools.data_cleaning_tools import (
 )
 from ds_auto_insights.tools.statistical_test_tools import (
     RunTTestTool,
-    RunZTestTool
+    RunZTestTool,
+    RunChiSquareTestTool
 )
 
 def generate_dataset_context(df: pd.DataFrame) -> str:
@@ -131,6 +132,7 @@ def run_mcp_planner(user_query: str, df: pd.DataFrame, chat_history: List[Dict] 
     # Statistical Analysis Tools
     t_test_tool = RunTTestTool(df=df)
     z_test_tool = RunZTestTool(df=df)
+    chi_square_test_tool = RunChiSquareTestTool(df=df)
     
     tools = [
         pandas_query_tool, groupby_tool, top_categories_tool, histogram_tool, 
@@ -143,7 +145,7 @@ def run_mcp_planner(user_query: str, df: pd.DataFrame, chat_history: List[Dict] 
         # Data imputation tools
         suggest_imputation_tool, apply_imputation_tool,
         # Statistical analysis tools
-        t_test_tool, z_test_tool
+        t_test_tool, z_test_tool, chi_square_test_tool
     ]
 
     # 2) LLM (swap to Claude/Gemini later by changing the Chat* class)
@@ -189,7 +191,13 @@ def run_mcp_planner(user_query: str, df: pd.DataFrame, chat_history: List[Dict] 
          "  • Best for large samples (n≥30) or when population standard deviation is known\n"
          "  • Same test types as t-test but uses normal distribution instead of t-distribution\n"
          "  • Include population_std parameter if known, otherwise sample std is used\n"
-         "  • Provides warnings when sample size is too small for z-test validity\n\n"
+         "  • Provides warnings when sample size is too small for z-test validity\n"
+         "- run_chi_square_test: Perform chi-square tests for categorical data analysis\n"
+         "  • Independence test: Test relationship between two categorical variables (requires column1 and column2)\n"
+         "  • Goodness of fit test: Test if data follows expected distribution (requires only column1)\n"
+         "  • For goodness of fit, use expected_frequencies parameter or assume equal frequencies\n"
+         "  • Includes effect size (Cramér's V), contingency tables, and assumption checking\n"
+         "  • Creates heatmaps for independence tests and bar charts for goodness of fit\n\n"
          "CHART CREATION TOOLS:\n"
          "- create_histogram_chart: Create visual histogram charts for numeric data distributions\n"
          "- create_bar_chart: Create visual bar charts for categorical data (top categories, counts)\n"
