@@ -97,7 +97,14 @@ class RunPandasQueryTool(BaseTool):
         self._df = df
 
     def _is_safe_expression(self, query: str) -> bool:
-        # Disallow dangerous keywords and assignment operations
+        # Check for multi-line queries (assignments typically span multiple lines)
+        lines = [line.strip() for line in query.strip().split('\n') if line.strip()]
+        
+        if len(lines) > 1:
+            # Multi-line queries are not allowed
+            return False
+        
+        # For single-line queries, use more permissive validation
         banned_patterns: list[str] = [
             r"__.*?__",          # dunder methods
             r"\bimport\b",       # import statements
@@ -110,13 +117,17 @@ class RunPandasQueryTool(BaseTool):
             r"\bglobals\(\)",    # globals access
             r"\blocals\(\)",     # locals access
             r"\bdel\b",          # del statement
-            r"=(?!=)",           # assignment operators (but not equality ==)
+            # Only block actual variable assignments (not parameter passing)
+            r"\b[a-zA-Z_][a-zA-Z0-9_]*\s*=(?!=)(?!\s*[a-zA-Z0-9_.\[\]'\"]+)",  # variable = value (but not func(param=value))
             r"\+=",              # augmented assignment
             r"-=",               # augmented assignment  
             r"\*=",              # augmented assignment
             r"/=",               # augmented assignment
         ]
-        return not any(re.search(pattern, query) for pattern in banned_patterns)
+        
+        # Check the single line
+        line = lines[0]
+        return not any(re.search(pattern, line) for pattern in banned_patterns)
 
     def _run(self, query: str) -> str:
         if not self._is_safe_expression(query):
@@ -133,7 +144,7 @@ class RunPandasQueryTool(BaseTool):
             with pd.option_context('display.max_columns', max_cols, 
                                    'display.width', None, 
                                    'display.max_colwidth', 50):
-                local_vars: dict = {"df": self._df}
+                local_vars: dict = {"df": self._df, "pd": pd, "np": np}
                 result = eval(query, {}, local_vars)
                 return str(result)
         except Exception as e:
