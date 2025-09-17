@@ -33,8 +33,9 @@ from ds_auto_insights.tools.data_cleaning_tools import (
     SuggestImputationStrategiesTool,
     ApplyImputationTool
 )
-from ds_auto_insights.tools.statistical_tools import (
-    RunTTestTool
+from ds_auto_insights.tools.statistical_test_tools import (
+    RunTTestTool,
+    RunZTestTool
 )
 
 def generate_dataset_context(df: pd.DataFrame) -> str:
@@ -129,6 +130,7 @@ def run_mcp_planner(user_query: str, df: pd.DataFrame, chat_history: List[Dict] 
     
     # Statistical Analysis Tools
     t_test_tool = RunTTestTool(df=df)
+    z_test_tool = RunZTestTool(df=df)
     
     tools = [
         pandas_query_tool, groupby_tool, top_categories_tool, histogram_tool, 
@@ -141,7 +143,7 @@ def run_mcp_planner(user_query: str, df: pd.DataFrame, chat_history: List[Dict] 
         # Data imputation tools
         suggest_imputation_tool, apply_imputation_tool,
         # Statistical analysis tools
-        t_test_tool
+        t_test_tool, z_test_tool
     ]
 
     # 2) LLM (swap to Claude/Gemini later by changing the Chat* class)
@@ -177,11 +179,17 @@ def run_mcp_planner(user_query: str, df: pd.DataFrame, chat_history: List[Dict] 
          "  Examples: create opponent column, calculate ratios, create categorical bins, etc.\n\n"
          "STATISTICAL ANALYSIS TOOLS (Rigorous Hypothesis Testing):\n"
          "- run_t_test: Perform one-sample, two-sample, or paired t-tests with full statistical interpretation\n"
+         "  • Best for smaller samples (n<30) or when population std is unknown\n"
          "  • One-sample: Test if mean differs from a specific value\n"
          "  • Two-sample: Compare means between two groups (use group_values=['Group1', 'Group2'] to specify which groups)\n"
          "  • Paired: Compare two related measurements\n"
          "  • Includes effect sizes, assumptions checking, and business interpretation\n"
-         "  • Automatically creates appropriate visualizations (histograms, box plots, scatter plots)\n\n"
+         "  • Automatically creates appropriate visualizations (histograms, box plots, scatter plots)\n"
+         "- run_z_test: Perform one-sample, two-sample, or paired z-tests with normal distribution\n"
+         "  • Best for large samples (n≥30) or when population standard deviation is known\n"
+         "  • Same test types as t-test but uses normal distribution instead of t-distribution\n"
+         "  • Include population_std parameter if known, otherwise sample std is used\n"
+         "  • Provides warnings when sample size is too small for z-test validity\n\n"
          "CHART CREATION TOOLS:\n"
          "- create_histogram_chart: Create visual histogram charts for numeric data distributions\n"
          "- create_bar_chart: Create visual bar charts for categorical data (top categories, counts)\n"
