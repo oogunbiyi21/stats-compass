@@ -617,3 +617,531 @@ class CreateCorrelationHeatmapTool(BaseTool):
 
     def _arun(self, columns: list = None, method: str = "pearson", title: str = "Correlation Heatmap"):
         raise NotImplementedError("Async not supported")
+
+
+# ===== ML REGRESSION CHART TOOLS =====
+
+class CreateRegressionPlotInput(BaseModel):
+    model_key: str = Field(default="linear_regression", description="Key of the ML model results to visualize")
+    title: str = Field(default="", description="Custom title for the chart")
+
+
+class CreateRegressionPlotTool(BaseTool):
+    name: str = "create_regression_plot"
+    description: str = "Creates actual vs predicted scatter plot from ML regression results."
+    args_schema: Type[BaseModel] = CreateRegressionPlotInput
+
+    def _run(self, model_key: str = "linear_regression", title: str = "") -> str:
+        try:
+            # Check if ML results exist in session state
+            if not hasattr(st, 'session_state') or 'ml_model_results' not in st.session_state:
+                return "❌ No ML model results found. Run a regression analysis first."
+                
+            if model_key not in st.session_state.ml_model_results:
+                available_keys = list(st.session_state.ml_model_results.keys())
+                return f"❌ Model '{model_key}' not found. Available models: {available_keys}"
+            
+            # Get model results
+            results = st.session_state.ml_model_results[model_key]
+            y_train = results['y_train']
+            y_train_pred = results['y_train_pred']
+            y_test = results['y_test']
+            y_test_pred = results['y_test_pred']
+            target_column = results['target_column']
+            train_r2 = results.get('train_r2', 0)
+            test_r2 = results.get('test_r2', 0)
+            
+            # Create scatter plot
+            fig = go.Figure()
+            
+            # Training data
+            fig.add_trace(go.Scatter(
+                x=y_train, y=y_train_pred,
+                mode='markers',
+                name='Training Data',
+                marker=dict(color='blue', size=6, opacity=0.6),
+                hovertemplate='<b>Training</b><br>Actual: %{x}<br>Predicted: %{y}<extra></extra>'
+            ))
+            
+            # Test data (if different from training)
+            if len(y_test) != len(y_train):
+                fig.add_trace(go.Scatter(
+                    x=y_test, y=y_test_pred,
+                    mode='markers',
+                    name='Test Data',
+                    marker=dict(color='red', size=6, opacity=0.6),
+                    hovertemplate='<b>Test</b><br>Actual: %{x}<br>Predicted: %{y}<extra></extra>'
+                ))
+            
+            # Perfect prediction line
+            min_val = min(min(y_train), min(y_train_pred))
+            max_val = max(max(y_train), max(y_train_pred))
+            fig.add_trace(go.Scatter(
+                x=[min_val, max_val], y=[min_val, max_val],
+                mode='lines',
+                name='Perfect Prediction',
+                line=dict(color='gray', dash='dash'),
+                hoverinfo='skip'
+            ))
+            
+            chart_title = title or f"Actual vs Predicted: {target_column}"
+            fig.update_layout(
+                title=chart_title,
+                xaxis_title=f'Actual {target_column}',
+                yaxis_title=f'Predicted {target_column}',
+                hovermode='closest'
+            )
+            
+            # Store chart data for Streamlit rendering (following the same pattern as other chart tools)
+            if hasattr(st, 'session_state'):
+                if 'current_response_charts' not in st.session_state:
+                    st.session_state.current_response_charts = []
+                
+                chart_info = {
+                    'type': 'regression_plot',
+                    'title': chart_title,
+                    'figure': fig,
+                    'data': pd.DataFrame({
+                        'train_actual': y_train,
+                        'train_predicted': y_train_pred,
+                        'test_actual': y_test,
+                        'test_predicted': y_test_pred
+                    }),
+                    'target_column': target_column,
+                    'train_r2': train_r2,
+                    'test_r2': test_r2
+                }
+                st.session_state.current_response_charts.append(chart_info)
+            
+            summary = f"""🎯 {chart_title}
+
+📊 Created regression scatter plot showing model predictions vs actual values.
+
+📈 Model Performance:
+  • Training R² = {train_r2:.3f} ({train_r2*100:.1f}% variance explained)
+  • Test R² = {test_r2:.3f} ({test_r2*100:.1f}% variance explained)
+
+💡 Points closer to the diagonal line indicate better predictions. Systematic deviations from the line suggest model issues."""
+
+            return summary
+            
+        except Exception as e:
+            return f"❌ Error creating regression plot: {str(e)}"
+
+    def _arun(self, model_key: str = "linear_regression", title: str = ""):
+        raise NotImplementedError("Async not supported")
+
+
+class CreateResidualPlotInput(BaseModel):
+    model_key: str = Field(default="linear_regression", description="Key of the ML model results to visualize")
+    title: str = Field(default="", description="Custom title for the chart")
+
+
+class CreateResidualPlotTool(BaseTool):
+    name: str = "create_residual_plot"
+    description: str = "Creates residual plot from ML regression results to check model assumptions."
+    args_schema: Type[BaseModel] = CreateResidualPlotInput
+
+    def _run(self, model_key: str = "linear_regression", title: str = "") -> str:
+        try:
+            # Check if ML results exist in session state
+            if not hasattr(st, 'session_state') or 'ml_model_results' not in st.session_state:
+                return "❌ No ML model results found. Run a regression analysis first."
+                
+            if model_key not in st.session_state.ml_model_results:
+                available_keys = list(st.session_state.ml_model_results.keys())
+                return f"❌ Model '{model_key}' not found. Available models: {available_keys}"
+            
+            # Get model results
+            results = st.session_state.ml_model_results[model_key]
+            y_train_pred = results['y_train_pred']
+            residuals = results['residuals']
+            target_column = results['target_column']
+            assumptions = results.get('assumptions', {})
+            
+            # Create residual plot
+            fig = go.Figure()
+            
+            fig.add_trace(go.Scatter(
+                x=y_train_pred, y=residuals,
+                mode='markers',
+                name='Residuals',
+                marker=dict(color='blue', size=6, opacity=0.6),
+                hovertemplate='<b>Residual Analysis</b><br>Predicted: %{x}<br>Residual: %{y}<extra></extra>'
+            ))
+            
+            # Zero line
+            fig.add_hline(y=0, line_dash="dash", line_color="red", 
+                         annotation_text="Zero Line")
+            
+            chart_title = title or f"Residual Plot: {target_column}"
+            fig.update_layout(
+                title=chart_title,
+                xaxis_title=f'Predicted {target_column}',
+                yaxis_title='Residuals',
+                hovermode='closest'
+            )
+            
+            # Store chart data for Streamlit rendering (following the same pattern as other chart tools)
+            if hasattr(st, 'session_state'):
+                if 'current_response_charts' not in st.session_state:
+                    st.session_state.current_response_charts = []
+                
+                chart_info = {
+                    'type': 'residual_plot',
+                    'title': chart_title,
+                    'figure': fig,
+                    'data': pd.DataFrame({
+                        'predicted': y_train_pred,
+                        'residuals': residuals
+                    }),
+                    'target_column': target_column,
+                    'assumptions': assumptions
+                }
+                st.session_state.current_response_charts.append(chart_info)
+            
+            # Analyze residual patterns
+            pattern_analysis = ""
+            if 'homoscedasticity' in assumptions:
+                homo_status = assumptions['homoscedasticity']['status']
+                pattern_analysis += f"  • Homoscedasticity (constant variance): {homo_status}\n"
+            
+            if 'normality' in assumptions:
+                norm_status = assumptions['normality']['status']
+                pattern_analysis += f"  • Normality of residuals: {norm_status}\n"
+            
+            summary = f"""🔍 {chart_title}
+
+📊 Created residual plot to validate model assumptions.
+
+⚠️ Model Assumptions Check:
+{pattern_analysis.strip()}
+
+💡 Good residuals should:
+  • Be randomly scattered around zero line
+  • Show constant variance (no funnel pattern)
+  • Have no obvious patterns or trends"""
+
+            return summary
+            
+        except Exception as e:
+            return f"❌ Error creating residual plot: {str(e)}"
+
+    def _arun(self, model_key: str = "linear_regression", title: str = ""):
+        raise NotImplementedError("Async not supported")
+
+
+class CreateCoefficientChartInput(BaseModel):
+    model_key: str = Field(default="linear_regression", description="Key of the ML model results to visualize")
+    top_n: int = Field(default=10, description="Number of top features to show")
+    title: str = Field(default="", description="Custom title for the chart")
+
+
+class CreateCoefficientChartTool(BaseTool):
+    name: str = "create_coefficient_chart"
+    description: str = "Creates coefficient importance chart from ML regression results."
+    args_schema: Type[BaseModel] = CreateCoefficientChartInput
+
+    def _run(self, model_key: str = "linear_regression", top_n: int = 10, title: str = "") -> str:
+        try:
+            # Check if ML results exist in session state
+            if not hasattr(st, 'session_state') or 'ml_model_results' not in st.session_state:
+                return "❌ No ML model results found. Run a regression analysis first."
+                
+            if model_key not in st.session_state.ml_model_results:
+                available_keys = list(st.session_state.ml_model_results.keys())
+                return f"❌ Model '{model_key}' not found. Available models: {available_keys}"
+            
+            # Get model results
+            results = st.session_state.ml_model_results[model_key]
+            coefficients = results['coefficients']
+            target_column = results['target_column']
+            standardized = results.get('standardized', False)
+            
+            # Sort by absolute coefficient value and take top N
+            coef_sorted = coefficients.sort_values('abs_coefficient', ascending=True).tail(top_n)
+            
+            # Create horizontal bar chart
+            fig = go.Figure()
+            
+            # Color bars based on positive/negative coefficients
+            colors = ['green' if x > 0 else 'red' for x in coef_sorted['coefficient']]
+            
+            fig.add_trace(go.Bar(
+                y=coef_sorted['feature'],
+                x=coef_sorted['coefficient'],
+                orientation='h',
+                marker=dict(color=colors, opacity=0.7),
+                hovertemplate='<b>%{y}</b><br>Coefficient: %{x}<br>95% CI: [%{customdata[0]:.4f}, %{customdata[1]:.4f}]<extra></extra>',
+                customdata=coef_sorted[['conf_int_lower', 'conf_int_upper']].values
+            ))
+            
+            chart_title = title or f"Feature Coefficients: {target_column}"
+            fig.update_layout(
+                title=chart_title,
+                xaxis_title='Coefficient Value',
+                yaxis_title='Features',
+                hovermode='closest'
+            )
+            
+            # Store chart data for Streamlit rendering (following the same pattern as other chart tools)
+            if hasattr(st, 'session_state'):
+                if 'current_response_charts' not in st.session_state:
+                    st.session_state.current_response_charts = []
+                
+                chart_info = {
+                    'type': 'coefficient_chart',
+                    'title': chart_title,
+                    'figure': fig,
+                    'data': coef_sorted,
+                    'target_column': target_column,
+                    'standardized': standardized,
+                    'top_n': top_n
+                }
+                st.session_state.current_response_charts.append(chart_info)
+            
+            # Create interpretation
+            top_features = coef_sorted.tail(3)  # Most important 3
+            feature_interpretation = ""
+            for _, row in top_features.iterrows():
+                direction = "increases" if row['coefficient'] > 0 else "decreases"
+                significance = "✓ Significant" if row['significant'] else "Not significant"
+                
+                if standardized:
+                    feature_interpretation += f"  • **{row['feature']}**: 1 std dev increase {direction} {target_column} by {abs(row['coefficient']):.3f} units ({significance})\n"
+                else:
+                    feature_interpretation += f"  • **{row['feature']}**: 1 unit increase {direction} {target_column} by {abs(row['coefficient']):.3f} units ({significance})\n"
+            
+            summary = f"""📊 {chart_title}
+
+🎯 Created coefficient importance chart showing top {min(top_n, len(coefficients))} features.
+
+🔍 Key Feature Effects:
+{feature_interpretation.strip()}
+
+💡 Interpretation:
+  • Green bars = positive effect on {target_column}
+  • Red bars = negative effect on {target_column}
+  • Longer bars = stronger effect
+  • Focus on significant features (✓) for decisions"""
+
+            return summary
+            
+        except Exception as e:
+            return f"❌ Error creating coefficient chart: {str(e)}"
+
+    def _arun(self, model_key: str = "linear_regression", top_n: int = 10, title: str = ""):
+        raise NotImplementedError("Async not supported")
+
+
+class CreateFeatureImportanceChartInput(BaseModel):
+    model_key: str = Field(default="logistic_regression", description="Key of the ML model results to visualize")
+    top_n: int = Field(default=10, description="Number of top features to show")
+    show_odds_ratios: bool = Field(default=True, description="Show odds ratios instead of raw coefficients for logistic regression")
+    title: str = Field(default="", description="Custom title for the chart")
+
+
+class CreateFeatureImportanceChartTool(BaseTool):
+    name: str = "create_feature_importance_chart"
+    description: str = "Creates feature importance chart from ML model results. Supports both linear and logistic regression with appropriate visualizations."
+    args_schema: Type[BaseModel] = CreateFeatureImportanceChartInput
+
+    def _run(self, model_key: str = "logistic_regression", top_n: int = 10, show_odds_ratios: bool = True, title: str = "") -> str:
+        try:
+            # Check if ML results exist in session state
+            if not hasattr(st, 'session_state') or 'ml_model_results' not in st.session_state:
+                return "❌ No ML model results found. Run a regression analysis first."
+                
+            if model_key not in st.session_state.ml_model_results:
+                available_keys = list(st.session_state.ml_model_results.keys())
+                return f"❌ Model '{model_key}' not found. Available models: {available_keys}"
+            
+            # Get model results
+            results = st.session_state.ml_model_results[model_key]
+            model_type = results['model_type']
+            coefficients = results['coefficients']
+            target_column = results['target_column']
+            
+            # Handle different model types
+            if model_type == 'logistic_regression':
+                # For logistic regression, we can show either coefficients or odds ratios
+                if show_odds_ratios and 'odds_ratio' in coefficients.columns:
+                    # Sort by significance (distance from 1 for odds ratios)
+                    coefficients['importance'] = np.abs(np.log(coefficients['odds_ratio']))
+                    chart_data = coefficients.sort_values('importance', ascending=True).tail(top_n)
+                    
+                    # Create horizontal bar chart with odds ratios
+                    fig = go.Figure()
+                    
+                    # Color bars based on whether odds ratio > 1 (increases odds) or < 1 (decreases odds)
+                    colors = ['green' if x > 1 else 'red' for x in chart_data['odds_ratio']]
+                    
+                    fig.add_trace(go.Bar(
+                        y=chart_data['feature'],
+                        x=chart_data['odds_ratio'],
+                        orientation='h',
+                        marker=dict(color=colors, opacity=0.7),
+                        hovertemplate='<b>%{y}</b><br>Odds Ratio: %{x:.3f}<br>Coefficient: %{customdata[0]:.4f}<extra></extra>',
+                        customdata=chart_data[['coefficient']].values
+                    ))
+                    
+                    chart_title = title or f"Feature Importance (Odds Ratios): {target_column}"
+                    fig.update_layout(
+                        title=chart_title,
+                        xaxis_title='Odds Ratio',
+                        yaxis_title='Features',
+                        hovermode='closest'
+                    )
+                    
+                    # Add vertical line at odds ratio = 1 (no effect)
+                    fig.add_vline(x=1, line_dash="dash", line_color="gray", annotation_text="No Effect")
+                    
+                    value_column = 'odds_ratio'
+                    interpretation_type = "odds ratios"
+                    
+                else:
+                    # Show raw coefficients for logistic regression
+                    chart_data = coefficients.sort_values('abs_coefficient', ascending=True).tail(top_n)
+                    
+                    # Create horizontal bar chart
+                    fig = go.Figure()
+                    
+                    # Color bars based on positive/negative coefficients
+                    colors = ['green' if x > 0 else 'red' for x in chart_data['coefficient']]
+                    
+                    fig.add_trace(go.Bar(
+                        y=chart_data['feature'],
+                        x=chart_data['coefficient'],
+                        orientation='h',
+                        marker=dict(color=colors, opacity=0.7),
+                        hovertemplate='<b>%{y}</b><br>Coefficient: %{x:.4f}<br>Odds Ratio: %{customdata[0]:.3f}<extra></extra>',
+                        customdata=chart_data[['odds_ratio']].values if 'odds_ratio' in chart_data.columns else [[0]] * len(chart_data)
+                    ))
+                    
+                    chart_title = title or f"Feature Importance (Coefficients): {target_column}"
+                    fig.update_layout(
+                        title=chart_title,
+                        xaxis_title='Coefficient Value',
+                        yaxis_title='Features',
+                        hovermode='closest'
+                    )
+                    
+                    value_column = 'coefficient'
+                    interpretation_type = "coefficients"
+                    
+            elif model_type == 'linear_regression':
+                # For linear regression, show coefficients
+                chart_data = coefficients.sort_values('abs_coefficient', ascending=True).tail(top_n)
+                
+                # Create horizontal bar chart
+                fig = go.Figure()
+                
+                # Color bars based on positive/negative coefficients
+                colors = ['green' if x > 0 else 'red' for x in chart_data['coefficient']]
+                
+                # Check if we have confidence intervals
+                has_confidence_intervals = 'conf_int_lower' in chart_data.columns and 'conf_int_upper' in chart_data.columns
+                
+                if has_confidence_intervals:
+                    fig.add_trace(go.Bar(
+                        y=chart_data['feature'],
+                        x=chart_data['coefficient'],
+                        orientation='h',
+                        marker=dict(color=colors, opacity=0.7),
+                        hovertemplate='<b>%{y}</b><br>Coefficient: %{x:.4f}<br>95% CI: [%{customdata[0]:.4f}, %{customdata[1]:.4f}]<extra></extra>',
+                        customdata=chart_data[['conf_int_lower', 'conf_int_upper']].values
+                    ))
+                else:
+                    fig.add_trace(go.Bar(
+                        y=chart_data['feature'],
+                        x=chart_data['coefficient'],
+                        orientation='h',
+                        marker=dict(color=colors, opacity=0.7),
+                        hovertemplate='<b>%{y}</b><br>Coefficient: %{x:.4f}<extra></extra>'
+                    ))
+                
+                chart_title = title or f"Feature Importance: {target_column}"
+                fig.update_layout(
+                    title=chart_title,
+                    xaxis_title='Coefficient Value',
+                    yaxis_title='Features',
+                    hovermode='closest'
+                )
+                
+                value_column = 'coefficient'
+                interpretation_type = "coefficients"
+                
+            else:
+                return f"❌ Unsupported model type: {model_type}. Supported types: linear_regression, logistic_regression"
+            
+            # Store chart data for Streamlit rendering
+            if hasattr(st, 'session_state'):
+                if 'current_response_charts' not in st.session_state:
+                    st.session_state.current_response_charts = []
+                
+                chart_info = {
+                    'type': 'feature_importance_chart',
+                    'title': chart_title,
+                    'figure': fig,
+                    'data': chart_data,
+                    'target_column': target_column,
+                    'model_type': model_type,
+                    'interpretation_type': interpretation_type,
+                    'top_n': top_n
+                }
+                st.session_state.current_response_charts.append(chart_info)
+            
+            # Create interpretation
+            top_features = chart_data.tail(3)  # Most important 3
+            feature_interpretation = ""
+            
+            if model_type == 'logistic_regression' and show_odds_ratios and 'odds_ratio' in coefficients.columns:
+                for _, row in top_features.iterrows():
+                    odds_ratio = row['odds_ratio']
+                    if odds_ratio > 1:
+                        effect = f"increases odds by {((odds_ratio - 1) * 100):.1f}%"
+                    else:
+                        effect = f"decreases odds by {((1 - odds_ratio) * 100):.1f}%"
+                    feature_interpretation += f"  • **{row['feature']}**: 1 unit increase {effect}\n"
+            else:
+                for _, row in top_features.iterrows():
+                    direction = "increases" if row['coefficient'] > 0 else "decreases"
+                    significance = ""
+                    if 'significant' in row and row['significant']:
+                        significance = " (✓ Significant)"
+                    elif 'significant' in row:
+                        significance = " (Not significant)"
+                    
+                    feature_interpretation += f"  • **{row['feature']}**: 1 unit increase {direction} {target_column} by {abs(row['coefficient']):.3f} units{significance}\n"
+            
+            chart_type_desc = "Odds Ratios" if (model_type == 'logistic_regression' and show_odds_ratios) else "Coefficients"
+            
+            summary = f"""📊 {chart_title}
+
+🎯 Created feature importance chart showing top {min(top_n, len(coefficients))} features using {interpretation_type}.
+
+🔍 Key Feature Effects:
+{feature_interpretation.strip()}
+
+💡 Interpretation:
+"""
+            
+            if model_type == 'logistic_regression' and show_odds_ratios:
+                summary += """  • Green bars = increases odds of positive outcome
+  • Red bars = decreases odds of positive outcome
+  • Values > 1 = increases probability, < 1 = decreases probability
+  • Distance from 1 indicates strength of effect"""
+            else:
+                summary += f"""  • Green bars = positive effect on {target_column}
+  • Red bars = negative effect on {target_column}
+  • Longer bars = stronger effect"""
+                if model_type == 'linear_regression':
+                    summary += "\n  • Focus on significant features (✓) for decisions"
+
+            return summary
+            
+        except Exception as e:
+            return f"❌ Error creating feature importance chart: {str(e)}"
+
+    def _arun(self, model_key: str = "logistic_regression", top_n: int = 10, show_odds_ratios: bool = True, title: str = ""):
+        raise NotImplementedError("Async not supported")

@@ -22,7 +22,11 @@ from ds_auto_insights.tools.chart_tools import (
     CreateLineChartTool,
     CreateColumnTool,
     TimeSeriesAnalysisTool,
-    CreateCorrelationHeatmapTool
+    CreateCorrelationHeatmapTool,
+    CreateRegressionPlotTool,
+    CreateResidualPlotTool,
+    CreateCoefficientChartTool,
+    CreateFeatureImportanceChartTool
 )
 from ds_auto_insights.tools.data_cleaning_tools import (
     AnalyzeMissingDataTool,
@@ -37,6 +41,14 @@ from ds_auto_insights.tools.statistical_test_tools import (
     RunTTestTool,
     RunZTestTool,
     RunChiSquareTestTool
+)
+from ds_auto_insights.tools.ml_regression_tools import (
+    RunLinearRegressionTool,
+    RunLogisticRegressionTool
+)
+from ds_auto_insights.tools.ml_evaluation_tools import (
+    EvaluateRegressionModelTool,
+    EvaluateClassificationModelTool
 )
 
 def generate_dataset_context(df: pd.DataFrame) -> str:
@@ -134,6 +146,20 @@ def run_mcp_planner(user_query: str, df: pd.DataFrame, chat_history: List[Dict] 
     z_test_tool = RunZTestTool(df=df)
     chi_square_test_tool = RunChiSquareTestTool(df=df)
     
+    # ML Regression Tools
+    linear_regression_tool = RunLinearRegressionTool(df=df)
+    logistic_regression_tool = RunLogisticRegressionTool(df=df)
+    
+    # ML Evaluation Tools (don't need df since they read from session state)
+    evaluate_regression_tool = EvaluateRegressionModelTool()
+    evaluate_classification_tool = EvaluateClassificationModelTool()
+    
+    # ML Chart Tools (don't need df since they read from session state)
+    regression_plot_tool = CreateRegressionPlotTool()
+    residual_plot_tool = CreateResidualPlotTool()
+    coefficient_chart_tool = CreateCoefficientChartTool()
+    feature_importance_chart_tool = CreateFeatureImportanceChartTool()
+    
     tools = [
         pandas_query_tool, groupby_tool, top_categories_tool, histogram_tool, 
         correlation_tool, dataset_preview_tool, histogram_chart_tool, 
@@ -145,7 +171,13 @@ def run_mcp_planner(user_query: str, df: pd.DataFrame, chat_history: List[Dict] 
         # Data imputation tools
         suggest_imputation_tool, apply_imputation_tool,
         # Statistical analysis tools
-        t_test_tool, z_test_tool, chi_square_test_tool
+        t_test_tool, z_test_tool, chi_square_test_tool,
+        # ML regression tools
+        linear_regression_tool, logistic_regression_tool,
+        # ML evaluation tools
+        evaluate_regression_tool, evaluate_classification_tool,
+        # ML chart tools
+        regression_plot_tool, residual_plot_tool, coefficient_chart_tool, feature_importance_chart_tool
     ]
 
     # 2) LLM (swap to Claude/Gemini later by changing the Chat* class)
@@ -198,6 +230,44 @@ def run_mcp_planner(user_query: str, df: pd.DataFrame, chat_history: List[Dict] 
          "  • For goodness of fit, use expected_frequencies parameter or assume equal frequencies\n"
          "  • Includes effect size (Cramér's V), contingency tables, and assumption checking\n"
          "  • Creates heatmaps for independence tests and bar charts for goodness of fit\n\n"
+         "MACHINE LEARNING TOOLS (Advanced Predictive Modeling):\n"
+         "- run_linear_regression: Comprehensive linear regression analysis with feature selection\n"
+         "  • Predicts continuous target variables using one or more features\n"
+         "  • Automatic feature preprocessing and train/test splitting\n"
+         "  • Includes R-squared, RMSE, MAE, coefficient analysis with confidence intervals\n"
+         "  • Model assumption checking (linearity, normality, homoscedasticity, multicollinearity)\n"
+         "  • Business-friendly interpretation with feature importance and effect sizes\n"
+         "  • Stores model results for visualization with chart tools\n"
+         "- run_logistic_regression: Binary classification using logistic regression\n"
+         "  • Predicts binary/categorical outcomes (0/1, True/False, categorical labels)\n"
+         "  • Automatic encoding of categorical targets and feature preprocessing\n"
+         "  • Includes accuracy, precision, recall, F1-score, AUC-ROC metrics\n"
+         "  • Coefficient analysis with odds ratios and confidence intervals\n"
+         "  • Business interpretation of probability impacts and feature effects\n"
+         "  • Model assumption checking and performance evaluation\n"
+         "- evaluate_regression_model: Comprehensive evaluation of fitted regression models\n"
+         "  • Detailed metrics: R², RMSE, MAE, overfitting assessment, generalization analysis\n"
+         "  • Statistical assumption checking: linearity, normality, homoscedasticity, independence\n"
+         "  • Business recommendations and model quality assessment\n"
+         "  • Use after running linear regression for detailed performance analysis\n"
+         "- evaluate_classification_model: Comprehensive evaluation of fitted classification models\n"
+         "  • Detailed metrics: accuracy, precision, recall, F1-score, ROC AUC\n"
+         "  • Confusion matrix analysis and class-wise performance breakdown\n"
+         "  • Overfitting assessment and generalization analysis\n"
+         "  • Use after running logistic regression for detailed performance analysis\n\n"
+         "ML VISUALIZATION TOOLS (Model Result Charts):\n"
+         "- create_regression_plot: Actual vs predicted scatter plot from regression models\n"
+         "  • Shows model accuracy and prediction quality\n"
+         "  • Includes perfect prediction line and performance metrics\n"
+         "  • Separate training and test data visualization\n"
+         "- create_residual_plot: Residual analysis plot for regression diagnostics\n"
+         "  • Validates model assumptions (constant variance, normality)\n"
+         "  • Identifies systematic patterns or outliers in predictions\n"
+         "  • Essential for regression model validation\n"
+         "- create_coefficient_chart: Feature importance chart from regression models\n"
+         "  • Shows positive/negative effects of each feature on target\n"
+         "  • Includes confidence intervals and significance indicators\n"
+         "  • Business-friendly interpretation of feature impacts\n\n"
          "CHART CREATION TOOLS:\n"
          "- create_histogram_chart: Create visual histogram charts for numeric data distributions\n"
          "- create_bar_chart: Create visual bar charts for categorical data (top categories, counts)\n"
@@ -216,9 +286,11 @@ def run_mcp_planner(user_query: str, df: pd.DataFrame, chat_history: List[Dict] 
          "3. When users ask to 'show', 'plot', 'visualize', or 'chart' data, use create_*_chart tools\n"
          "4. For creating new columns or data transformations, use create_column tool\n"
          "5. INTELLIGENTLY suggest data cleaning when you notice potential quality issues\n"
-         "6. Always try specialized tools FIRST. Only use run_pandas_query as a last resort\n"
-         "7. Use the provided column information to answer questions immediately\n"
-         "8. For analysis + visualization, do the analysis first, then create the chart\n\n"
+         "6. For predictive modeling questions, use ML regression tools (linear/logistic regression)\n"
+         "7. Always visualize ML results using regression/residual/coefficient chart tools after modeling\n"
+         "8. Always try specialized tools FIRST. Only use run_pandas_query as a last resort\n"
+         "9. Use the provided column information to answer questions immediately\n"
+         "10. For analysis + visualization, do the analysis first, then create the chart\n\n"
          "SMART ANALYSIS: You can immediately answer questions about available columns, data types, "
          "and suggest appropriate analysis without running dataset_preview first. Use your knowledge "
          "of the dataset structure to provide intelligent recommendations. Be proactive about data quality!"),

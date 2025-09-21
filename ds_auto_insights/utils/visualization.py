@@ -184,6 +184,73 @@ def display_single_chart(chart_info: Dict[str, Any], chart_id: Optional[str] = N
                 st.warning("Chi-Square Test chart figure not available for display")
         except Exception as e:
             st.error(f"Error displaying Chi-Square Test chart: {e}")
+    
+    elif chart_type == 'regression_plot':
+        st.subheader(f"📊 {title}")
+        try:
+            # Get the plotly figure from chart_info
+            fig = chart_info.get('figure')
+            if fig:
+                st.plotly_chart(fig, use_container_width=True, key=f"regression_{chart_id}")
+                
+                # Show performance metrics
+                train_r2 = chart_info.get('train_r2', 0)
+                test_r2 = chart_info.get('test_r2', 0)
+                st.caption(f"📈 Training R²: {train_r2:.3f} | Test R²: {test_r2:.3f}")
+            else:
+                st.warning("Regression plot figure not available for display")
+        except Exception as e:
+            st.error(f"Error displaying regression plot: {e}")
+            
+    elif chart_type == 'residual_plot':
+        st.subheader(f"📊 {title}")
+        try:
+            # Get the plotly figure from chart_info
+            fig = chart_info.get('figure')
+            if fig:
+                st.plotly_chart(fig, use_container_width=True, key=f"residual_{chart_id}")
+            else:
+                st.warning("Residual plot figure not available for display")
+        except Exception as e:
+            st.error(f"Error displaying residual plot: {e}")
+            
+    elif chart_type == 'coefficient_chart':
+        st.subheader(f"📊 {title}")
+        try:
+            # Get the plotly figure from chart_info
+            fig = chart_info.get('figure')
+            if fig:
+                st.plotly_chart(fig, use_container_width=True, key=f"coefficient_{chart_id}")
+                
+                # Show interpretation note
+                target_column = chart_info.get('target_column', 'target')
+                st.caption(f"💡 Green bars = positive effect on {target_column}, Red bars = negative effect")
+            else:
+                st.warning("Coefficient chart figure not available for display")
+        except Exception as e:
+            st.error(f"Error displaying coefficient chart: {e}")
+            
+    elif chart_type == 'feature_importance_chart':
+        st.subheader(f"📊 {title}")
+        try:
+            # Get the plotly figure from chart_info
+            fig = chart_info.get('figure')
+            if fig:
+                st.plotly_chart(fig, use_container_width=True, key=f"feature_importance_{chart_id}")
+                
+                # Show interpretation note based on model type
+                model_type = chart_info.get('model_type', 'unknown')
+                interpretation_type = chart_info.get('interpretation_type', 'coefficients')
+                target_column = chart_info.get('target_column', 'target')
+                
+                if model_type == 'logistic_regression' and interpretation_type == 'odds ratios':
+                    st.caption(f"💡 Values > 1 increase odds, < 1 decrease odds of positive {target_column}")
+                else:
+                    st.caption(f"💡 Green bars = positive effect on {target_column}, Red bars = negative effect")
+            else:
+                st.warning("Feature importance chart figure not available for display")
+        except Exception as e:
+            st.error(f"Error displaying feature importance chart: {e}")
             
     else:
         st.warning(f"Chart type '{chart_type}' not supported yet")
