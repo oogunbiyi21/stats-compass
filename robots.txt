@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://<your-username>.github.io/ds-auto-insights/sitemap.xml
+Sitemap: https://<your-username>.github.io/stats-compass/sitemap.xml

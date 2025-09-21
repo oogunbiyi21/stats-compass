@@ -28,11 +28,11 @@ mock_st = MockStreamlit()
 sys.modules['streamlit'] = mock_st
 
 # Now import tools after mocking
-from ds_auto_insights.tools.ml_regression_tools import RunLinearRegressionTool
-from ds_auto_insights.tools.chart_tools import CreateRegressionPlotTool
+from stats_compass.tools.ml_regression_tools import RunLinearRegressionTool
+from stats_compass.tools.chart_tools import CreateRegressionPlotTool
 
 # Ensure the imported st module uses our mock
-import ds_auto_insights.tools.ml_regression_tools as ml_module
+import stats_compass.tools.ml_regression_tools as ml_module
 ml_module.st = mock_st
 
 def main():

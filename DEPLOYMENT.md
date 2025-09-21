@@ -19,8 +19,8 @@
    - Go to [share.streamlit.io](https://share.streamlit.io)
    - Click "New app"
    - Connect your GitHub account
-   - Select your repository: `your-username/ds-auto-insights`
-   - Main file path: `ds_auto_insights/app.py`
+   - Select your repository: `your-username/stats-compass`
+   - Main file path: `stats_compass/app.py`
    - Click "Deploy!"
 
 3. **Set Environment Variables**:
@@ -40,7 +40,7 @@
 2. **Connect GitHub** repository
 3. **Create Web Service**:
    - Build Command: `pip install -r requirements.txt`
-   - Start Command: `streamlit run ds_auto_insights/app.py --server.port=$PORT --server.address=0.0.0.0`
+   - Start Command: `streamlit run stats_compass/app.py --server.port=$PORT --server.address=0.0.0.0`
 4. **Set Environment Variables**:
    - Add `OPENAI_API_KEY` in Render dashboard
 
@@ -49,10 +49,10 @@
 ### Local Testing
 ```bash
 # Build the image
-docker build -t ds-auto-insights .
+docker build -t stats-compass .
 
 # Run with environment file
-docker run -p 8501:8501 --env-file .env ds-auto-insights
+docker run -p 8501:8501 --env-file .env stats-compass
 ```
 
 ### Using Docker Compose

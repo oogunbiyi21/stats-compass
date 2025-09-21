@@ -1,11 +1,11 @@
 [tool.poetry]
-name = "ds-auto-insights"
+name = "stats-compass"
 version = "0.1.0"
 description = ""
 authors = ["togunbiyi1 <olatunjiogunbiyi@googlemail.com>"]
 readme = "README.md"
 packages = [
-  { include = "ds_auto_insights" }
+  { include = "stats_compass" }
 ]
 
 [tool.poetry.dependencies]

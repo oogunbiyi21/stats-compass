@@ -1,4 +1,4 @@
-# ds_auto_insights/utils/export_utils.py
+# stats_compass/utils/export_utils.py
 
 import streamlit as st
 import json

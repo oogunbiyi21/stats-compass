@@ -7,16 +7,16 @@ from langchain_openai import ChatOpenAI
 from langchain.agents import create_tool_calling_agent, AgentExecutor
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
-from ds_auto_insights.tools.exploration_tools import (
-    RunPandasQueryTool,
-    GroupByAggregateTool,
+from stats_compass.tools.exploration_tools import (
+    PandasQueryTool,
+    GroupByTool,
     TopCategoriesTool,
     HistogramTool,
     CorrelationMatrixTool,
     DatasetPreviewTool,
     CreateHistogramChartTool
 )
-from ds_auto_insights.tools.chart_tools import (
+from stats_compass.tools.chart_tools import (
     CreateBarChartTool,
     CreateScatterPlotTool,
     CreateLineChartTool,
@@ -28,25 +28,25 @@ from ds_auto_insights.tools.chart_tools import (
     CreateCoefficientChartTool,
     CreateFeatureImportanceChartTool
 )
-from ds_auto_insights.tools.data_cleaning_tools import (
+from stats_compass.tools.data_cleaning_tools import (
     AnalyzeMissingDataTool,
     DetectOutliersTool,
     FindDuplicatesTool,
     ApplyBasicCleaningTool,
     SuggestDataCleaningActionsTool,
-    SuggestImputationStrategiesTool,
+    SuggestImputationTool,
     ApplyImputationTool
 )
-from ds_auto_insights.tools.statistical_test_tools import (
-    RunTTestTool,
-    RunZTestTool,
-    RunChiSquareTestTool
+from stats_compass.tools.statistical_test_tools import (
+    PerformTTestTool,
+    PerformZTestTool,
+    PerformChiSquareTestTool
 )
-from ds_auto_insights.tools.ml_regression_tools import (
+from stats_compass.tools.ml_regression_tools import (
     RunLinearRegressionTool,
     RunLogisticRegressionTool
 )
-from ds_auto_insights.tools.ml_evaluation_tools import (
+from stats_compass.tools.ml_evaluation_tools import (
     EvaluateRegressionModelTool,
     EvaluateClassificationModelTool
 )

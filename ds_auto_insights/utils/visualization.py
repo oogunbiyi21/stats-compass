@@ -1,4 +1,4 @@
-# ds_auto_insights/utils/visualization.py
+# stats_compass/utils/visualization.py
 
 import pandas as pd
 import streamlit as st

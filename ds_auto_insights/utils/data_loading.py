@@ -1,4 +1,4 @@
-# ds_auto_insights/utils/data_loading.py
+# stats_compass/utils/data_loading.py
 """
 Data loading utilities for DS Auto Insights.
 Handles file upload, parsing, and validation.

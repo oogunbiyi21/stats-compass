@@ -1,4 +1,4 @@
-# ds_auto_insights/utils/analysis.py
+# stats_compass/utils/analysis.py
 
 import pandas as pd
 import numpy as np

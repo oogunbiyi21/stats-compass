@@ -1,4 +1,4 @@
-# ds_auto_insights/tools/ml_evaluation_tools.py
+# stats_compass/tools/ml_evaluation_tools.py
 """
 ML Model Evaluation Tools for DS Auto Insights.
 Provides comprehensive model evaluation capabilities including metrics, 

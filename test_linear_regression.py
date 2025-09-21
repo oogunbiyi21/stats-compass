@@ -5,7 +5,7 @@ Quick test of linear regression implementation
 
 import pandas as pd
 import numpy as np
-from ds_auto_insights.tools.ml_regression_tools import RunLinearRegressionTool
+from stats_compass.tools.ml_regression_tools import RunLinearRegressionTool
 
 def create_test_data():
     """Create a simple test dataset for regression."""

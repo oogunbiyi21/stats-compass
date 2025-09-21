@@ -52,7 +52,7 @@ function responsive() {
 window.addEventListener("resize", responsive)
 
 // DS Auto Insights specific functionality
-document.addEventListener('DOMContentLoaded', function() {
+document.addEventListener('DOMContentLoaded', function () {
     // Animate numbers on scroll
     const animateNumbers = () => {
         const numberElements = document.querySelectorAll('.animate-number');
@@ -72,10 +72,10 @@ document.addEventListener('DOMContentLoaded', function() {
     // Add smooth scroll for demo button
     const demoButton = document.querySelector('.demo-btn');
     if (demoButton) {
-        demoButton.addEventListener('click', function(e) {
+        demoButton.addEventListener('click', function (e) {
             e.preventDefault();
             // Redirect to your Streamlit app
-            window.open('https://ds-auto-insights-demo.streamlit.app', '_blank');
+            window.open('https://stats-compass-demo.streamlit.app', '_blank');
         });
     }
 

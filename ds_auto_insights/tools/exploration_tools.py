@@ -1,4 +1,4 @@
-# ds_auto_insights/tools/exploration_tools.py
+# stats_compass/tools/exploration_tools.py
 """
 Data exploration tools for DS Auto Insights.
 Provides comprehensive data exploration and analysis capabilities.

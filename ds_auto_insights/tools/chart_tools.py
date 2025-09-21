@@ -1,4 +1,4 @@
-# ds_auto_insights/tools/chart_tools.py
+# stats_compass/tools/chart_tools.py
 """
 Chart and visualization tools for DS Auto Insights.
 Provides comprehensive charting capabilities using Plotly.

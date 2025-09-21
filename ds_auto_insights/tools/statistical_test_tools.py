@@ -1,4 +1,4 @@
-# ds_auto_insights/tools/statistical_test_tools.py
+# stats_compass/tools/statistical_test_tools.py
 """
 Statistical test tools for DS Auto Insights.
 Provides T-test and Z-test implementations for hypothesis testing.

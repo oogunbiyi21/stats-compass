@@ -1,4 +1,4 @@
-# ds_auto_insights/smart_suggestions.py
+# stats_compass/smart_suggestions.py
 
 import pandas as pd
 from typing import List, Dict, Any

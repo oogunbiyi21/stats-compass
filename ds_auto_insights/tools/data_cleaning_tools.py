@@ -1,4 +1,4 @@
-# ds_auto_insights/tools/data_cleaning_tools.py
+# stats_compass/tools/data_cleaning_tools.py
 """
 Data cleaning tools for DS Auto Insights.
 These tools provide systematic data cleaning capabilities that give us competitive advantage over ChatGPT.
@@ -10,7 +10,7 @@ import json
 from pydantic import BaseModel, Field, PrivateAttr
 from langchain.tools.base import BaseTool
 import streamlit as st
-from ds_auto_insights.utils.data_cleaning import (
+from stats_compass.utils.data_cleaning import (
     analyze_missing_data,
     detect_outliers,
     find_duplicates,

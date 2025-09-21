@@ -1,1 +1,1 @@
-# ds_auto_insights/utils/__init__.py
+# stats_compass/utils/__init__.py

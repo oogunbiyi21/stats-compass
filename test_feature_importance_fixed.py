@@ -57,7 +57,7 @@ sys.modules['streamlit'] = MockStreamlit()
 import streamlit as st
 
 # Now import our tool
-from ds_auto_insights.tools.chart_tools import CreateFeatureImportanceChartTool
+from stats_compass.tools.chart_tools import CreateFeatureImportanceChartTool
 
 def test_feature_importance_chart():
     print("🧪 Testing CreateFeatureImportanceChartTool...")

@@ -1,4 +1,4 @@
-# ds_auto_insights/utils/data_cleaning.py
+# stats_compass/utils/data_cleaning.py
 
 import numpy as np
 import pandas as pd

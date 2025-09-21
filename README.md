@@ -36,8 +36,8 @@ This prototype lets you:
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/oogunbiyi21/ds-auto-insights.git
-cd ds-auto-insights
+git clone https://github.com/oogunbiyi21/stats-compass.git
+cd stats-compass
 ```
 
 2. Install dependencies:
@@ -53,7 +53,7 @@ cp .env.example .env
 
 4. Run the application:
 ```bash
-poetry run streamlit run ds_auto_insights/app.py
+poetry run streamlit run stats_compass/app.py
 ```
 
 ## 🎮 Current Features

@@ -1,4 +1,4 @@
-# ds_auto_insights/app.py
+# stats_compass/app.py
 import os
 import json
 import pandas as pd

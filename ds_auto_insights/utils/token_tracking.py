@@ -1,4 +1,4 @@
-# ds_auto_insights/utils/token_tracking.py
+# stats_compass/utils/token_tracking.py
 """
 Token usage and cost tracking utilities for DS Auto Insights.
 Provides transparent cost monitoring for users.

@@ -83,4 +83,4 @@ poetry.lock
 *.temp
 
 # Miscellaneous
-ds_auto_insights_plan.txt
+stats_compass_plan.txt

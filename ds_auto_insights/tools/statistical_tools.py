@@ -1,4 +1,4 @@
-# ds_auto_insights/tools/statistical_tools.py
+# stats_compass/tools/statistical_tools.py
 """
 Statistical analysis tools for DS Auto Insights.
 Provides advanced statistical analysis capabilities.
