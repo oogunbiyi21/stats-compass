@@ -1,4 +1,4 @@
-# Stats Compass
+# 🧭 Stats Compass
 
 An experimental data analysis tool for product managers to explore datasets through natural language conversations. Upload CSV files and ask questions about your data.
 
