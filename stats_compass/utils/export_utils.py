@@ -518,6 +518,84 @@ def export_chart_as_image(chart_info: Dict[str, Any], format: str = "png") -> by
                         line=dict(color='black', width=2),
                         marker=dict(color='black', size=4)  # outlier markers
                     )
+        elif chart_type == 'regression_plot':
+            # Use the stored plotly figure directly
+            fig = chart_info.get('figure')
+            if not fig:
+                raise ValueError("No regression plot figure available")
+            
+            # Apply export-friendly template
+            fig.update_layout(
+                template='plotly_white',
+                plot_bgcolor='white',
+                paper_bgcolor='white',
+                font=dict(color='black', size=12)
+            )
+        elif chart_type == 'residual_plot':
+            # Use the stored plotly figure directly
+            fig = chart_info.get('figure')
+            if not fig:
+                raise ValueError("No residual plot figure available")
+            
+            # Apply export-friendly template
+            fig.update_layout(
+                template='plotly_white',
+                plot_bgcolor='white',
+                paper_bgcolor='white',
+                font=dict(color='black', size=12)
+            )
+        elif chart_type == 'coefficient_chart':
+            # Use the stored plotly figure directly
+            fig = chart_info.get('figure')
+            if not fig:
+                raise ValueError("No coefficient chart figure available")
+            
+            # Apply export-friendly template
+            fig.update_layout(
+                template='plotly_white',
+                plot_bgcolor='white',
+                paper_bgcolor='white',
+                font=dict(color='black', size=12)
+            )
+        elif chart_type == 'feature_importance_chart':
+            # Use the stored plotly figure directly
+            fig = chart_info.get('figure')
+            if not fig:
+                raise ValueError("No feature importance chart figure available")
+            
+            # Apply export-friendly template
+            fig.update_layout(
+                template='plotly_white',
+                plot_bgcolor='white',
+                paper_bgcolor='white',
+                font=dict(color='black', size=12)
+            )
+        elif chart_type == 'roc_curve':
+            # Use the stored plotly figure directly
+            fig = chart_info.get('figure')
+            if not fig:
+                raise ValueError("No ROC curve figure available")
+            
+            # Apply export-friendly template
+            fig.update_layout(
+                template='plotly_white',
+                plot_bgcolor='white',
+                paper_bgcolor='white',
+                font=dict(color='black', size=12)
+            )
+        elif chart_type == 'precision_recall_curve':
+            # Use the stored plotly figure directly
+            fig = chart_info.get('figure')
+            if not fig:
+                raise ValueError("No precision-recall curve figure available")
+            
+            # Apply export-friendly template
+            fig.update_layout(
+                template='plotly_white',
+                plot_bgcolor='white',
+                paper_bgcolor='white',
+                font=dict(color='black', size=12)
+            )
         else:
             raise ValueError(f"Unsupported chart type: {chart_type}")
         

@@ -1,5 +1,5 @@
 """
-Machine Learning Regression Tools for DS Auto Insights
+Machine Learning Regression Tools for Stats Compass
 
 This module provides comprehensive linear and logistic regression capabilities
 with PM-friendly interpretations and professional visualizations.
@@ -11,7 +11,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 from sklearn.linear_model import LinearRegression, LogisticRegression
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error
+from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error, accuracy_score, roc_auc_score
 from sklearn.preprocessing import StandardScaler
 from scipy import stats
 import streamlit as st
@@ -248,9 +248,27 @@ class RunLinearRegressionTool(BaseTool):
             result_lines.extend([
                 f"",
                 f"📊 **Business Interpretation:**",
-                f"Use the coefficient values to understand how changes in each feature",
-                f"affect the predicted {target_column}. Focus on significant features",
-                f"(marked with ✓) for business decision-making.",
+                f"The model shows the following feature impacts (use these specific numbers for decisions):",
+                f""
+            ])
+            
+            # Show top 3 features with their exact coefficients for LLM to interpret
+            top_3_features = coefficients.head(3)
+            for _, row in top_3_features.iterrows():
+                direction = "increases" if row['coefficient'] > 0 else "decreases"
+                significance = "✓ Significant" if row['significant'] else "⚠️ Not significant"
+                
+                result_lines.append(f"• **{row['feature']}**: Coefficient = {row['coefficient']:.4f} ({significance})")
+                if standardize_features:
+                    result_lines.append(f"  → 1 std dev increase {direction} {target_column} by {abs(row['coefficient']):.4f} units")
+                else:
+                    result_lines.append(f"  → 1 unit increase {direction} {target_column} by {abs(row['coefficient']):.4f} units")
+            
+            # Provide model performance context for reliability assessment
+            result_lines.extend([
+                f"",
+                f"**Model Reliability:** R² = {train_r2:.3f} (explains {train_r2*100:.1f}% of variance)",
+                f"**Use for decisions:** {'✅ Model shows good predictive power' if train_r2 > 0.7 else '⚠️ Model has limited predictive power - use results cautiously' if train_r2 > 0.3 else '❌ Model has poor predictive power - collect better data before making decisions'}",
                 f"",
                 f"**Model Equation:** {target_column} = {model.intercept_:.4f}" if include_intercept else f"**Model Equation:** {target_column} = 0"
             ])
@@ -263,7 +281,7 @@ class RunLinearRegressionTool(BaseTool):
             if missing_mask.sum() > 0:
                 result_lines.append(f"\n📝 **Data Notes:** Removed {missing_count} rows with missing values")
                 
-            result_lines.append(f"\n� **Next Steps:** Use chart tools to visualize regression results, residuals, and feature importance.")
+            result_lines.append(f"\n📊 **Next Steps:** Use evaluate_regression_model for comprehensive model assessment, then create charts to visualize regression results, residuals, and feature importance.")
                 
             return "\n".join(result_lines)
             
@@ -453,38 +471,86 @@ class RunLogisticRegressionTool(BaseTool):
                     'unique_values': unique_values
                 }
             
-            # Compile results
-            results = {
-                "model_type": "Logistic Regression",
-                "target_variable": target_column,
-                "target_classes": unique_values.tolist(),
-                "features_used": feature_columns,
-                "n_observations": len(X),
-                "n_features": len(feature_columns),
-                "class_distribution": class_counts.to_dict(),
-                "standardized": standardize_features,
-                "class_weight": class_weight,
+            # Format results as string for display (like linear regression)
+            result_lines = [f"📊 **Logistic Regression Analysis: {target_column}**\n"]
+            
+            # Model summary
+            result_lines.extend([
+                f"**Model Type:** Logistic Regression",
+                f"**Target Variable:** {target_column} (Classes: {unique_values[0]}, {unique_values[1]})",
+                f"**Features Used:** {', '.join(feature_columns)}",
+                f"**Observations:** {len(X):,} (after removing missing values)",
+                f"**Train/Test Split:** {int((1-test_size)*100)}/{int(test_size*100)}%" if test_size > 0 else "No split",
+                f"**Standardized Features:** {'Yes' if standardize_features else 'No'}",
+                f"**Class Balance:** {'Balanced' if class_weight == 'balanced' else 'Natural'}",
+                f"",
+                f"📈 **Model Performance:**",
+                f"  • Training Accuracy = {accuracy_score(y_train, y_train_pred):.3f} ({accuracy_score(y_train, y_train_pred)*100:.1f}%)",
+                f"  • Test Accuracy = {accuracy_score(y_test, y_test_pred):.3f} ({accuracy_score(y_test, y_test_pred)*100:.1f}%)",
+                f"  • Training AUC = {roc_auc_score(y_train, y_train_proba):.3f}",
+                f"  • Test AUC = {roc_auc_score(y_test, y_test_proba):.3f}",
+                f""
+            ])
+            
+            # Feature importance (odds ratios)
+            result_lines.extend([
+                f"🎯 **Feature Importance (Top 5 Odds Ratios):**"
+            ])
+            
+            top_features = coefficients.head(5)
+            for _, row in top_features.iterrows():
+                odds_ratio = row['odds_ratio']
+                if odds_ratio > 1:
+                    effect = f"increases odds by {((odds_ratio - 1) * 100):.1f}%"
+                else:
+                    effect = f"decreases odds by {((1 - odds_ratio) * 100):.1f}%"
                 
+                result_lines.append(f"  • **{row['feature']}**: Each unit increase {effect} (OR: {odds_ratio:.3f})")
+            
+            result_lines.extend([
+                f"",
+                f"📊 **Business Interpretation:**",
+                f"The model shows the following feature impacts (use these specific numbers for decisions):",
+                f""
+            ])
+            
+            # Show top 3 features with their exact odds ratios and coefficients
+            top_3_features = coefficients.head(3)
+            for _, row in top_3_features.iterrows():
+                odds_ratio = row['odds_ratio']
+                if odds_ratio > 1:
+                    effect = f"increases odds by {((odds_ratio - 1) * 100):.1f}%"
+                else:
+                    effect = f"decreases odds by {((1 - odds_ratio) * 100):.1f}%"
                 
-                # Coefficient analysis
-                "coefficients": coefficients.round(4).to_dict('records'),
-                "intercept": round(model.intercept_[0], 4),
-                
-                # Predictions
-                "predictions": {
-                    "train_actual": y_train.tolist(),
-                    "train_predicted": y_train_pred.tolist(),
-                    "train_probabilities": y_train_proba.tolist(),
-                    "test_actual": y_test.tolist(),
-                    "test_predicted": y_test_pred.tolist(),
-                    "test_probabilities": y_test_proba.tolist()
-                }
-            }
+                result_lines.append(f"• **{row['feature']}**: Odds Ratio = {odds_ratio:.3f}, Coefficient = {row['coefficient']:.4f}")
+                result_lines.append(f"  → 1 unit increase {effect}")
+            
+            # Provide model performance context for reliability assessment
+            train_auc = roc_auc_score(y_train, y_train_proba)
+            test_auc = roc_auc_score(y_test, y_test_proba)
+            
+            result_lines.extend([
+                f"",
+                f"**Model Reliability:** AUC = {test_auc:.3f} (discrimination ability)",
+                f"**Use for decisions:** {'✅ Model shows excellent discrimination' if test_auc > 0.8 else '⚠️ Model has moderate discrimination - validate results' if test_auc > 0.6 else '❌ Model has poor discrimination - collect better data before making decisions'}",
+                f"",
+                f"🎯 **Classification Equation:** Probability = 1 / (1 + e^(-({model.intercept_[0]:.4f}",
+            ])
+            
+            # Add coefficient equation
+            for _, row in coefficients.iterrows():
+                sign = "+" if row['coefficient'] >= 0 else ""
+                result_lines[-1] += f" {sign} {row['coefficient']:.4f} × {row['feature']}"
+            
+            result_lines[-1] += ")))"
             
             if missing_mask.sum() > 0:
-                results["data_notes"] = f"Removed {missing_count} rows with missing values"
+                result_lines.append(f"\n📝 **Data Notes:** Removed {missing_count} rows with missing values")
                 
-            return results
+            result_lines.append(f"\n📊 **Next Steps:** Use evaluate_classification_model for comprehensive model assessment, then create ROC curves, precision-recall curves, and feature importance charts to visualize model performance.")
+                
+            return "\n".join(result_lines)
             
         except Exception as e:
-            return {"error": f"Logistic regression analysis failed: {str(e)}"}
+            return f"❌ Error in logistic regression analysis: {str(e)}"

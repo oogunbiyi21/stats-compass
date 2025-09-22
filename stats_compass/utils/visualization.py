@@ -252,6 +252,43 @@ def display_single_chart(chart_info: Dict[str, Any], chart_id: Optional[str] = N
         except Exception as e:
             st.error(f"Error displaying feature importance chart: {e}")
             
+    elif chart_type == 'roc_curve':
+        st.subheader(f"📈 {title}")
+        try:
+            # Get the plotly figure from chart_info
+            fig = chart_info.get('figure')
+            if fig:
+                st.plotly_chart(fig, use_container_width=True, key=f"roc_{chart_id}")
+                
+                # Show performance metrics
+                data = chart_info.get('data', {})
+                train_auc = data.get('train_auc', 0)
+                test_auc = data.get('test_auc', 0)
+                st.caption(f"📈 Training AUC: {train_auc:.3f} | Test AUC: {test_auc:.3f}")
+            else:
+                st.warning("ROC curve figure not available for display")
+        except Exception as e:
+            st.error(f"Error displaying ROC curve: {e}")
+            
+    elif chart_type == 'precision_recall_curve':
+        st.subheader(f"📈 {title}")
+        try:
+            # Get the plotly figure from chart_info
+            fig = chart_info.get('figure')
+            if fig:
+                st.plotly_chart(fig, use_container_width=True, key=f"pr_{chart_id}")
+                
+                # Show performance metrics
+                data = chart_info.get('data', {})
+                train_ap = data.get('train_ap', 0)
+                test_ap = data.get('test_ap', 0)
+                baseline = data.get('positive_ratio', 0.5)
+                st.caption(f"📈 Training AP: {train_ap:.3f} | Test AP: {test_ap:.3f} | Baseline: {baseline:.3f}")
+            else:
+                st.warning("Precision-recall curve figure not available for display")
+        except Exception as e:
+            st.error(f"Error displaying precision-recall curve: {e}")
+            
     else:
         st.warning(f"Chart type '{chart_type}' not supported yet")
         st.json(chart_info)  # Show raw data for debugging

@@ -8,8 +8,8 @@ from langchain.agents import create_tool_calling_agent, AgentExecutor
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
 from stats_compass.tools.exploration_tools import (
-    PandasQueryTool,
-    GroupByTool,
+    RunPandasQueryTool,
+    GroupByAggregateTool,
     TopCategoriesTool,
     HistogramTool,
     CorrelationMatrixTool,
@@ -26,7 +26,9 @@ from stats_compass.tools.chart_tools import (
     CreateRegressionPlotTool,
     CreateResidualPlotTool,
     CreateCoefficientChartTool,
-    CreateFeatureImportanceChartTool
+    CreateFeatureImportanceChartTool,
+    CreateROCCurveTool,
+    CreatePrecisionRecallCurveTool
 )
 from stats_compass.tools.data_cleaning_tools import (
     AnalyzeMissingDataTool,
@@ -34,13 +36,13 @@ from stats_compass.tools.data_cleaning_tools import (
     FindDuplicatesTool,
     ApplyBasicCleaningTool,
     SuggestDataCleaningActionsTool,
-    SuggestImputationTool,
+    SuggestImputationStrategiesTool,
     ApplyImputationTool
 )
 from stats_compass.tools.statistical_test_tools import (
-    PerformTTestTool,
-    PerformZTestTool,
-    PerformChiSquareTestTool
+    RunTTestTool,
+    RunZTestTool,
+    RunChiSquareTestTool
 )
 from stats_compass.tools.ml_regression_tools import (
     RunLinearRegressionTool,
@@ -159,6 +161,8 @@ def run_mcp_planner(user_query: str, df: pd.DataFrame, chat_history: List[Dict] 
     residual_plot_tool = CreateResidualPlotTool()
     coefficient_chart_tool = CreateCoefficientChartTool()
     feature_importance_chart_tool = CreateFeatureImportanceChartTool()
+    roc_curve_tool = CreateROCCurveTool()
+    precision_recall_curve_tool = CreatePrecisionRecallCurveTool()
     
     tools = [
         pandas_query_tool, groupby_tool, top_categories_tool, histogram_tool, 
@@ -177,7 +181,8 @@ def run_mcp_planner(user_query: str, df: pd.DataFrame, chat_history: List[Dict] 
         # ML evaluation tools
         evaluate_regression_tool, evaluate_classification_tool,
         # ML chart tools
-        regression_plot_tool, residual_plot_tool, coefficient_chart_tool, feature_importance_chart_tool
+        regression_plot_tool, residual_plot_tool, coefficient_chart_tool, feature_importance_chart_tool,
+        roc_curve_tool, precision_recall_curve_tool
     ]
 
     # 2) LLM (swap to Claude/Gemini later by changing the Chat* class)
@@ -243,18 +248,20 @@ def run_mcp_planner(user_query: str, df: pd.DataFrame, chat_history: List[Dict] 
          "  • Automatic encoding of categorical targets and feature preprocessing\n"
          "  • Includes accuracy, precision, recall, F1-score, AUC-ROC metrics\n"
          "  • Coefficient analysis with odds ratios and confidence intervals\n"
+         "  • Business-friendly interpretation with feature importance and effect sizes\n"
+         "  • Stores model results for visualization with chart tools\n"
          "  • Business interpretation of probability impacts and feature effects\n"
          "  • Model assumption checking and performance evaluation\n"
-         "- evaluate_regression_model: Comprehensive evaluation of fitted regression models\n"
+         "- evaluate_regression_model: Comprehensive evaluation of fitted regression models - AUTOMATIC AFTER LINEAR REGRESSION\n"
          "  • Detailed metrics: R², RMSE, MAE, overfitting assessment, generalization analysis\n"
          "  • Statistical assumption checking: linearity, normality, homoscedasticity, independence\n"
          "  • Business recommendations and model quality assessment\n"
-         "  • Use after running linear regression for detailed performance analysis\n"
-         "- evaluate_classification_model: Comprehensive evaluation of fitted classification models\n"
+         "  • ALWAYS use after running linear regression for detailed performance analysis\n"
+         "- evaluate_classification_model: Comprehensive evaluation of fitted classification models - AUTOMATIC AFTER LOGISTIC REGRESSION\n"
          "  • Detailed metrics: accuracy, precision, recall, F1-score, ROC AUC\n"
          "  • Confusion matrix analysis and class-wise performance breakdown\n"
          "  • Overfitting assessment and generalization analysis\n"
-         "  • Use after running logistic regression for detailed performance analysis\n\n"
+         "  • ALWAYS use after running logistic regression for detailed performance analysis\n\n"
          "ML VISUALIZATION TOOLS (Model Result Charts):\n"
          "- create_regression_plot: Actual vs predicted scatter plot from regression models\n"
          "  • Shows model accuracy and prediction quality\n"
@@ -267,7 +274,15 @@ def run_mcp_planner(user_query: str, df: pd.DataFrame, chat_history: List[Dict] 
          "- create_coefficient_chart: Feature importance chart from regression models\n"
          "  • Shows positive/negative effects of each feature on target\n"
          "  • Includes confidence intervals and significance indicators\n"
-         "  • Business-friendly interpretation of feature impacts\n\n"
+         "  • Business-friendly interpretation of feature impacts\n"
+         "- create_roc_curve: ROC curve for binary classification models\n"
+         "  • Shows true positive rate vs false positive rate at all thresholds\n"
+         "  • Displays AUC score for model discrimination ability\n"
+         "  • Essential for evaluating binary classification performance\n"
+         "- create_precision_recall_curve: Precision-recall curve for binary classification\n"
+         "  • Shows precision vs recall trade-off at all thresholds\n"
+         "  • Especially useful for imbalanced datasets\n"
+         "  • Displays average precision (AP) score\n\n"
          "CHART CREATION TOOLS:\n"
          "- create_histogram_chart: Create visual histogram charts for numeric data distributions\n"
          "- create_bar_chart: Create visual bar charts for categorical data (top categories, counts)\n"
@@ -280,6 +295,13 @@ def run_mcp_planner(user_query: str, df: pd.DataFrame, chat_history: List[Dict] 
          "3. Proactively suggest and apply cleaning when you detect quality issues\n"
          "4. Always explain what cleaning actions will do before applying them\n"
          "5. After cleaning, mention the improved data quality for better analysis results\n\n"
+         "MACHINE LEARNING WORKFLOW (MANDATORY SEQUENCE):\n"
+         "1. Run regression tool (run_linear_regression or run_logistic_regression)\n"
+         "2. IMMEDIATELY run evaluation tool (evaluate_regression_model or evaluate_classification_model)\n"
+         "3. Create visualization charts:\n"
+         "   - Linear regression: regression plots, residual plots, feature importance\n"
+         "   - Logistic regression: feature importance, ROC curve, precision-recall curve\n"
+         "4. Provide business interpretation based on evaluation results\n\n"
          "PRIORITY GUIDELINES:\n"
          "1. You KNOW the dataset structure - use the column names directly without needing dataset_preview\n"
          "2. For visualization requests (charts, plots, graphs), ALWAYS use the chart creation tools\n"
@@ -287,10 +309,21 @@ def run_mcp_planner(user_query: str, df: pd.DataFrame, chat_history: List[Dict] 
          "4. For creating new columns or data transformations, use create_column tool\n"
          "5. INTELLIGENTLY suggest data cleaning when you notice potential quality issues\n"
          "6. For predictive modeling questions, use ML regression tools (linear/logistic regression)\n"
-         "7. Always visualize ML results using regression/residual/coefficient chart tools after modeling\n"
-         "8. Always try specialized tools FIRST. Only use run_pandas_query as a last resort\n"
-         "9. Use the provided column information to answer questions immediately\n"
-         "10. For analysis + visualization, do the analysis first, then create the chart\n\n"
+         "7. After linear regression, ALWAYS use evaluate_regression_model for comprehensive analysis\n"
+         "8. After logistic regression, ALWAYS use evaluate_classification_model for comprehensive analysis\n"
+         "9. Always visualize ML results using regression/residual/coefficient chart tools after linear regression\n"
+         "10. Always visualize logistic regression results using create_feature_importance_chart, create_roc_curve, and create_precision_recall_curve\n"
+         "11. Always try specialized tools FIRST. Only use run_pandas_query as a last resort\n"
+         "12. Use the provided column information to answer questions immediately\n"
+         "13. For analysis + visualization, do the analysis first, then create the chart\n\n"
+         "CRITICAL: ALWAYS BE SPECIFIC AND QUANTITATIVE IN YOUR INTERPRETATIONS\n"
+         "- You have access to exact coefficient values, R-squared, p-values, odds ratios, and confidence intervals\n"
+         "- Use these SPECIFIC numbers to make CONCRETE recommendations\n"
+         "- Compare features quantitatively (\"Feature A has 2.1x more impact than Feature B\")\n"
+         "- Only recommend features with strong statistical significance and practical impact\n"
+         "- If model performance is poor (low R²/AUC), WARN about reliability instead of making recommendations\n"
+         "- Always reference the actual numerical results when giving business advice\n"
+         "- Be direct: \"Focus on X over Y because X has coefficient 0.45 vs Y's 0.12\"\n\n"
          "SMART ANALYSIS: You can immediately answer questions about available columns, data types, "
          "and suggest appropriate analysis without running dataset_preview first. Use your knowledge "
          "of the dataset structure to provide intelligent recommendations. Be proactive about data quality!"),
