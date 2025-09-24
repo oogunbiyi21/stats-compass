@@ -13,6 +13,8 @@ from sklearn.linear_model import LinearRegression, LogisticRegression
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error, accuracy_score, roc_auc_score
 from sklearn.preprocessing import StandardScaler
+from statsmodels.tsa.arima.model import ARIMA
+from statsmodels.tsa.stattools import adfuller
 from scipy import stats
 import streamlit as st
 from typing import Type, Dict, List, Any, Optional, Tuple
@@ -554,3 +556,180 @@ class RunLogisticRegressionTool(BaseTool):
             
         except Exception as e:
             return f"❌ Error in logistic regression analysis: {str(e)}"
+
+
+class ARIMAInput(BaseModel):
+    time_column: str = Field(description="Column containing time/date values")
+    value_column: str = Field(description="Column containing the time series values to model")
+    p: int = Field(default=1, description="Autoregressive (AR) order - number of lag observations")
+    d: int = Field(default=1, description="Differencing order - degree of differencing")
+    q: int = Field(default=1, description="Moving average (MA) order - size of moving average window")
+    forecast_periods: int = Field(default=12, description="Number of periods to forecast into the future")
+
+
+class RunARIMATool(BaseTool):
+    """
+    Simple ARIMA (AutoRegressive Integrated Moving Average) time series analysis tool.
+    
+    Fits ARIMA(p,d,q) model to time series data for:
+    - Time series forecasting
+    - Trend analysis
+    - Model fit assessment
+    - Simple forecasting without complex seasonal adjustments
+    """
+    
+    name: str = "run_arima_analysis"
+    description: str = "Fit ARIMA time series model for forecasting and trend analysis with simple parameterization"
+    args_schema: Type[BaseModel] = ARIMAInput
+
+    _df: pd.DataFrame = PrivateAttr()
+
+    def __init__(self, df: pd.DataFrame):
+        super().__init__()
+        self._df = df
+
+    def _run(self, time_column: str, value_column: str, p: int = 1, d: int = 1, q: int = 1, forecast_periods: int = 12) -> str:
+        try:
+            # Validate inputs
+            if time_column not in self._df.columns:
+                return f"❌ Time column '{time_column}' not found. Available columns: {list(self._df.columns)}"
+            
+            if value_column not in self._df.columns:
+                return f"❌ Value column '{value_column}' not found. Available columns: {list(self._df.columns)}"
+                        
+            # Prepare data
+            df_work = self._df[[time_column, value_column]].copy()
+            df_work = df_work.dropna()
+            
+            if len(df_work) < 10:
+                return f"❌ Insufficient data for ARIMA analysis. Need at least 10 observations, got {len(df_work)}"
+            
+            # Convert time column to datetime and sort
+            try:
+                df_work[time_column] = pd.to_datetime(df_work[time_column])
+            except:
+                return f"❌ Could not convert '{time_column}' to datetime format"
+            
+            df_work = df_work.sort_values(time_column).reset_index(drop=True)
+            
+            # Ensure numeric values
+            try:
+                df_work[value_column] = pd.to_numeric(df_work[value_column])
+            except:
+                return f"❌ Could not convert '{value_column}' to numeric values"
+            
+            time_series = df_work[value_column].values
+            
+            # Test for stationarity
+            adf_test = adfuller(time_series)
+            is_stationary = adf_test[1] <= 0.05
+            
+            # Fit ARIMA model
+            model = ARIMA(time_series, order=(p, d, q))
+            fitted_model = model.fit()
+            
+            # Generate forecasts
+            forecast_result = fitted_model.forecast(steps=forecast_periods)
+            forecast_conf_int = fitted_model.get_forecast(steps=forecast_periods).conf_int()
+            
+            # Calculate fit statistics
+            fitted_values = fitted_model.fittedvalues
+            residuals = fitted_model.resid
+            
+            # Create forecast dates
+            last_date = df_work[time_column].iloc[-1]
+            
+            # Try to infer frequency
+            if len(df_work) > 1:
+                time_diff = df_work[time_column].iloc[1] - df_work[time_column].iloc[0]
+                forecast_dates = pd.date_range(start=last_date + time_diff, periods=forecast_periods, freq=time_diff)
+            else:
+                # Default to daily if can't infer
+                forecast_dates = pd.date_range(start=last_date + pd.Timedelta(days=1), periods=forecast_periods, freq='D')
+            
+            # Store results in session state
+            if hasattr(st, 'session_state'):
+                if 'arima_results' not in st.session_state:
+                    st.session_state.arima_results = {}
+                
+                arima_key = f"arima_{value_column}"
+                st.session_state.arima_results[arima_key] = {
+                    'model': fitted_model,
+                    'time_series': time_series,
+                    'fitted_values': fitted_values,
+                    'residuals': residuals,
+                    'forecast': forecast_result.values if hasattr(forecast_result, 'values') else forecast_result,
+                    'forecast_conf_int': forecast_conf_int.values if hasattr(forecast_conf_int, 'values') else forecast_conf_int,
+                    'time_column': time_column,
+                    'value_column': value_column,
+                    'original_dates': df_work[time_column].values,
+                    'forecast_dates': forecast_dates,
+                    'order': (p, d, q),
+                    'aic': fitted_model.aic,
+                    'bic': fitted_model.bic,
+                    'is_stationary': is_stationary,
+                    'adf_pvalue': adf_test[1]
+                }
+            
+            # Calculate performance metrics
+            mse = np.mean(residuals**2)
+            mae = np.mean(np.abs(residuals))
+            rmse = np.sqrt(mse)
+            
+            # Generate summary
+            result_lines = [
+                f"🔮 **ARIMA({p},{d},{q}) Time Series Analysis: {value_column}**",
+                f"",
+                f"📊 **Model Performance:**",
+                f"  • AIC (Akaike Information Criterion): {fitted_model.aic:.2f}",
+                f"  • BIC (Bayesian Information Criterion): {fitted_model.bic:.2f}",
+                f"  • Root Mean Squared Error: {rmse:.4f}",
+                f"  • Mean Absolute Error: {mae:.4f}",
+                f"",
+                f"📈 **Time Series Properties:**",
+                f"  • Data points: {len(time_series)}",
+                f"  • Stationarity test (ADF): {'✅ Stationary' if is_stationary else '⚠️ Non-stationary'} (p-value: {adf_test[1]:.4f})",
+                f"  • Differencing applied: {d} {'time' if d == 1 else 'times'}",
+                f"",
+                f"🔮 **Forecast Summary:**",
+                f"  • Forecast periods: {forecast_periods}",
+                f"  • Forecast range: {forecast_dates[0].strftime('%Y-%m-%d')} to {forecast_dates[-1].strftime('%Y-%m-%d')}",
+                f"  • Average forecast value: {np.mean(forecast_result):.2f}",
+                f"",
+                f"📊 **Model Interpretation:**"
+            ]
+            
+            # Add model interpretation based on performance
+            if fitted_model.aic < 100:
+                result_lines.append("  • Excellent model fit - AIC indicates strong predictive capability")
+            elif fitted_model.aic < 200:
+                result_lines.append("  • Good model fit - reasonable predictive performance")  
+            else:
+                result_lines.append("  • Moderate model fit - consider adjusting ARIMA parameters")
+            
+            if is_stationary:
+                result_lines.append("  • Time series is stationary - good for ARIMA modeling")
+            else:
+                result_lines.append(f"  • Time series shows non-stationarity - differencing ({d}) applied to stabilize")
+            
+            # Add forecast insight
+            current_avg = np.mean(time_series[-min(12, len(time_series)):])  # Last 12 periods or available
+            forecast_avg = np.mean(forecast_result)
+            trend_direction = "increasing" if forecast_avg > current_avg else "decreasing" if forecast_avg < current_avg else "stable"
+            trend_magnitude = abs((forecast_avg - current_avg) / current_avg * 100)
+            
+            result_lines.extend([
+                f"",
+                f"🎯 **Forecast Insights:**",
+                f"  • Trend direction: {trend_direction.title()}",
+                f"  • Expected change: {trend_magnitude:.1f}% vs recent average",
+                f"  • Use create_arima_plot and create_arima_forecast_plot for visualization"
+            ])
+            
+            return "\n".join(result_lines)
+            
+        except Exception as e:
+            return f"❌ Error in ARIMA analysis: {str(e)}"
+
+    def _arun(self, time_column: str, value_column: str, p: int = 1, d: int = 1, q: int = 1, forecast_periods: int = 12):
+        raise NotImplementedError("Async not supported")

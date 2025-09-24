@@ -289,6 +289,44 @@ def display_single_chart(chart_info: Dict[str, Any], chart_id: Optional[str] = N
         except Exception as e:
             st.error(f"Error displaying precision-recall curve: {e}")
             
+    elif chart_type == 'arima_plot':
+        st.subheader(f"📈 {title}")
+        try:
+            # Get the plotly figure from chart_info
+            fig = chart_info.get('figure')
+            if fig:
+                st.plotly_chart(fig, use_container_width=True, key=f"arima_{chart_id}")
+                
+                # Show performance metrics
+                data = chart_info.get('data', {})
+                rmse = data.get('rmse', 0)
+                mae = data.get('mae', 0)
+                aic = data.get('aic', 0)
+                good_fit_pct = data.get('good_fit_percentage', 0)
+                st.caption(f"📊 RMSE: {rmse:.3f} | MAE: {mae:.3f} | AIC: {aic:.1f} | Good Fit: {good_fit_pct:.1f}%")
+            else:
+                st.warning("ARIMA plot figure not available for display")
+        except Exception as e:
+            st.error(f"Error displaying ARIMA plot: {e}")
+            
+    elif chart_type == 'arima_forecast_plot':
+        st.subheader(f"🔮 {title}")
+        try:
+            # Get the plotly figure from chart_info
+            fig = chart_info.get('figure')
+            if fig:
+                st.plotly_chart(fig, use_container_width=True, key=f"arima_forecast_{chart_id}")
+                
+                # Show forecast metrics if available
+                data = chart_info.get('data', {})
+                forecast_steps = data.get('forecast_steps', 0)
+                confidence_level = data.get('confidence_level', 95)
+                st.caption(f"🔮 Forecast Steps: {forecast_steps} | Confidence Level: {confidence_level}%")
+            else:
+                st.warning("ARIMA forecast plot figure not available for display")
+        except Exception as e:
+            st.error(f"Error displaying ARIMA forecast plot: {e}")
+            
     else:
         st.warning(f"Chart type '{chart_type}' not supported yet")
         st.json(chart_info)  # Show raw data for debugging

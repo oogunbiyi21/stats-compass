@@ -30,7 +30,9 @@ from stats_compass.tools.chart_tools import (
 from stats_compass.tools.ml_chart_tools import (
     CreateFeatureImportanceChartTool,
     CreateROCCurveTool,
-    CreatePrecisionRecallCurveTool
+    CreatePrecisionRecallCurveTool,
+    CreateARIMAPlotTool,
+    CreateARIMAForecastPlotTool
 )
 from stats_compass.tools.data_cleaning_tools import (
     AnalyzeMissingDataTool,
@@ -48,7 +50,8 @@ from stats_compass.tools.statistical_test_tools import (
 )
 from stats_compass.tools.ml_regression_tools import (
     RunLinearRegressionTool,
-    RunLogisticRegressionTool
+    RunLogisticRegressionTool,
+    RunARIMATool
 )
 from stats_compass.tools.ml_evaluation_tools import (
     EvaluateRegressionModelTool,
@@ -153,6 +156,7 @@ def run_mcp_planner(user_query: str, df: pd.DataFrame, chat_history: List[Dict] 
     # ML Regression Tools
     linear_regression_tool = RunLinearRegressionTool(df=df)
     logistic_regression_tool = RunLogisticRegressionTool(df=df)
+    arima_tool = RunARIMATool(df=df)
     
     # ML Evaluation Tools (don't need df since they read from session state)
     evaluate_regression_tool = EvaluateRegressionModelTool()
@@ -165,6 +169,8 @@ def run_mcp_planner(user_query: str, df: pd.DataFrame, chat_history: List[Dict] 
     feature_importance_chart_tool = CreateFeatureImportanceChartTool()
     roc_curve_tool = CreateROCCurveTool()
     precision_recall_curve_tool = CreatePrecisionRecallCurveTool()
+    arima_plot_tool = CreateARIMAPlotTool()
+    arima_forecast_plot_tool = CreateARIMAForecastPlotTool()
     
     tools = [
         pandas_query_tool, groupby_tool, top_categories_tool, histogram_tool, 
@@ -179,12 +185,12 @@ def run_mcp_planner(user_query: str, df: pd.DataFrame, chat_history: List[Dict] 
         # Statistical analysis tools
         t_test_tool, z_test_tool, chi_square_test_tool,
         # ML regression tools
-        linear_regression_tool, logistic_regression_tool,
+        linear_regression_tool, logistic_regression_tool, arima_tool,
         # ML evaluation tools
         evaluate_regression_tool, evaluate_classification_tool,
         # ML chart tools
         regression_plot_tool, residual_plot_tool, coefficient_chart_tool, feature_importance_chart_tool,
-        roc_curve_tool, precision_recall_curve_tool
+        roc_curve_tool, precision_recall_curve_tool, arima_plot_tool, arima_forecast_plot_tool
     ]
 
     # 2) LLM (swap to Claude/Gemini later by changing the Chat* class)
@@ -254,6 +260,12 @@ def run_mcp_planner(user_query: str, df: pd.DataFrame, chat_history: List[Dict] 
          "  • Stores model results for visualization with chart tools\n"
          "  • Business interpretation of probability impacts and feature effects\n"
          "  • Model assumption checking and performance evaluation\n"
+         "- run_arima_analysis: Time series forecasting using ARIMA models\n"
+         "  • Simple ARIMA(p,d,q) modeling for univariate time series\n"
+         "  • Automatic stationarity testing and model fitting\n"
+         "  • Forecast generation with confidence intervals\n"
+         "  • Model performance metrics (AIC, BIC, RMSE, MAE)\n"
+         "  • Stores results for time series visualization tools\n"
          "- evaluate_regression_model: Comprehensive evaluation of fitted regression models - AUTOMATIC AFTER LINEAR REGRESSION\n"
          "  • Detailed metrics: R², RMSE, MAE, overfitting assessment, generalization analysis\n"
          "  • Statistical assumption checking: linearity, normality, homoscedasticity, independence\n"
@@ -284,7 +296,16 @@ def run_mcp_planner(user_query: str, df: pd.DataFrame, chat_history: List[Dict] 
          "- create_precision_recall_curve: Precision-recall curve for binary classification\n"
          "  • Shows precision vs recall trade-off at all thresholds\n"
          "  • Especially useful for imbalanced datasets\n"
-         "  • Displays average precision (AP) score\n\n"
+         "  • Displays average precision (AP) score\n"
+         "- create_arima_plot: ARIMA model fit visualization showing actual vs fitted values\n"
+         "  • Displays how well ARIMA model captures historical patterns\n"
+         "  • Shows model performance with fit statistics (RMSE, MAE, AIC)\n"
+         "  • Essential for assessing ARIMA model quality before forecasting\n"
+         "- create_arima_forecast_plot: ARIMA forecast visualization with future predictions\n"
+         "  • Shows future predictions with confidence intervals\n"
+         "  • Customizable forecast steps and confidence levels\n"
+         "  • Displays trend direction and forecast statistics\n"
+         "  • Essential for time series forecasting and planning\n\n"
          "CHART CREATION TOOLS:\n"
          "- create_histogram_chart: Create visual histogram charts for numeric data distributions\n"
          "- create_bar_chart: Create visual bar charts for categorical data (top categories, counts)\n"
@@ -298,11 +319,17 @@ def run_mcp_planner(user_query: str, df: pd.DataFrame, chat_history: List[Dict] 
          "4. Always explain what cleaning actions will do before applying them\n"
          "5. After cleaning, mention the improved data quality for better analysis results\n\n"
          "MACHINE LEARNING WORKFLOW (MANDATORY SEQUENCE):\n"
-         "1. Run regression tool (run_linear_regression or run_logistic_regression)\n"
+         "0. **DATA QUALITY ASSESSMENT:** Before any modeling, intelligently assess data quality:\n"
+         "   - If significant missing data (>10%), suggest data cleaning first using analyze_missing_data and imputation tools\n"
+         "   - If too much missing data (>50%), recommend against modeling until data quality improves\n"
+         "   - For time series, consider forward-fill or interpolation for missing values\n"
+         "   - Use your judgment: small amounts of missing data can proceed with complete case analysis\n"
+         "1. Run regression tool (run_linear_regression, run_logistic_regression, or run_arima_analysis)\n"
          "2. IMMEDIATELY run evaluation tool (evaluate_regression_model or evaluate_classification_model)\n"
          "3. Create visualization charts:\n"
          "   - Linear regression: regression plots, residual plots, feature importance\n"
          "   - Logistic regression: feature importance, ROC curve, precision-recall curve\n"
+         "   - ARIMA: create_arima_plot and create_arima_forecast_plot\n"
          "4. Provide business interpretation based on evaluation results\n\n"
          "PRIORITY GUIDELINES:\n"
          "1. You KNOW the dataset structure - use the column names directly without needing dataset_preview\n"

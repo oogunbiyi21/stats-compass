@@ -579,3 +579,310 @@ class CreatePrecisionRecallCurveTool(BaseTool):
 
     def _arun(self, model_key: str = "logistic_regression", title: str = ""):
         raise NotImplementedError("Async not supported")
+
+
+class CreateARIMAPlotInput(BaseModel):
+    arima_key: str = Field(default="", description="Key of the ARIMA model results to visualize (if empty, use most recent)")
+    title: str = Field(default="", description="Custom title for the chart")
+
+
+class CreateARIMAPlotTool(BaseTool):
+    """
+    Create ARIMA model fit visualization showing actual vs fitted values.
+    Displays how well the ARIMA model captures the historical time series patterns.
+    """
+    
+    name: str = "create_arima_plot"
+    description: str = "Create ARIMA model fit plot showing actual vs fitted values for model performance assessment"
+    args_schema: Type[BaseModel] = CreateARIMAPlotInput
+
+    def _run(self, arima_key: str = "", title: str = "") -> str:
+        try:
+            # Check if ARIMA results exist in session state
+            if not hasattr(st, 'session_state') or 'arima_results' not in st.session_state:
+                return "❌ No ARIMA model results found. Run ARIMA analysis first using run_arima_analysis."
+                
+            # Get the ARIMA key to use
+            if not arima_key:
+                # Use the most recent ARIMA result
+                if not st.session_state.arima_results:
+                    return "❌ No ARIMA results available."
+                arima_key = list(st.session_state.arima_results.keys())[-1]
+            
+            if arima_key not in st.session_state.arima_results:
+                available_keys = list(st.session_state.arima_results.keys())
+                return f"❌ ARIMA model '{arima_key}' not found. Available models: {available_keys}"
+            
+            # Get ARIMA results
+            results = st.session_state.arima_results[arima_key]
+            time_series = results['time_series']
+            fitted_values = results['fitted_values']
+            original_dates = results['original_dates']
+            value_column = results['value_column']
+            order = results['order']
+            aic = results['aic']
+            residuals = results['residuals']
+            
+            # Create time index for plotting
+            time_index = pd.to_datetime(original_dates)
+            
+            # Create the plot
+            fig = go.Figure()
+            
+            # Add actual values
+            fig.add_trace(go.Scatter(
+                x=time_index,
+                y=time_series,
+                mode='lines+markers',
+                name='Actual',
+                line=dict(color='blue', width=2),
+                marker=dict(size=4),
+                hovertemplate='<b>Actual</b><br>Date: %{x}<br>Value: %{y:.2f}<extra></extra>'
+            ))
+            
+            # Add fitted values (skip first few points that ARIMA can't fit due to differencing)
+            fitted_dates = time_index[len(time_index) - len(fitted_values):]
+            fig.add_trace(go.Scatter(
+                x=fitted_dates,
+                y=fitted_values,
+                mode='lines',
+                name='Fitted',
+                line=dict(color='red', width=2, dash='dash'),
+                hovertemplate='<b>Fitted</b><br>Date: %{x}<br>Value: %{y:.2f}<extra></extra>'
+            ))
+            
+            chart_title = title or f"ARIMA{order} Model Fit: {value_column}"
+            fig.update_layout(
+                title=chart_title,
+                xaxis_title='Time',
+                yaxis_title=value_column,
+                hovermode='x unified',
+                width=800,
+                height=500,
+                showlegend=True,
+                legend=dict(
+                    orientation="h",
+                    yanchor="bottom",
+                    y=1.02,
+                    xanchor="right",
+                    x=1
+                )
+            )
+            
+            # Store chart data for Streamlit rendering
+            if hasattr(st, 'session_state'):
+                if 'current_response_charts' not in st.session_state:
+                    st.session_state.current_response_charts = []
+                
+                chart_info = {
+                    'type': 'arima_plot',
+                    'title': chart_title,
+                    'figure': fig,
+                    'data': {
+                        'time_index': time_index.tolist(),
+                        'actual_values': time_series.tolist(),
+                        'fitted_values': fitted_values.tolist(),
+                        'fitted_dates': fitted_dates.tolist()
+                    },
+                    'value_column': value_column,
+                    'arima_key': arima_key,
+                    'order': order,
+                    'aic': aic
+                }
+                st.session_state.current_response_charts.append(chart_info)
+            
+            # Calculate model fit statistics
+            rmse = np.sqrt(np.mean(residuals**2))
+            mae = np.mean(np.abs(residuals))
+            
+            # Calculate percentage of points where fitted is close to actual
+            # Use only overlapping period
+            actual_subset = time_series[len(time_series) - len(fitted_values):]
+            errors = np.abs(actual_subset - fitted_values)
+            good_fit_pct = np.mean(errors <= np.std(actual_subset)) * 100
+            
+            summary = f"""📈 {chart_title}
+
+📊 Created ARIMA model fit visualization showing actual vs fitted values.
+
+📈 Model Fit Assessment:
+  • RMSE: {rmse:.4f}
+  • MAE: {mae:.4f}
+  • AIC: {aic:.2f}
+  • Good fit points: {good_fit_pct:.1f}% (within 1 std dev)
+
+💡 Interpretation:
+  • Blue line (actual): Historical time series data
+  • Red dashed line (fitted): ARIMA model predictions
+  • Closer alignment = better model fit
+  • Use for assessing model quality before forecasting"""
+
+            return summary
+            
+        except Exception as e:
+            return f"❌ Error creating ARIMA plot: {str(e)}"
+
+    def _arun(self, arima_key: str = "", title: str = ""):
+        raise NotImplementedError("Async not supported")
+
+
+class CreateARIMAForecastPlotInput(BaseModel):
+    arima_key: str = Field(default="", description="Key of the ARIMA results to visualize (leave empty for most recent)")
+    forecast_steps: int = Field(default=10, description="Number of future steps to forecast")
+    confidence_level: float = Field(default=0.95, description="Confidence level for forecast intervals (e.g., 0.95 for 95%)")
+    title: str = Field(default="", description="Custom title for the chart")
+
+
+class CreateARIMAForecastPlotTool(BaseTool):
+    name: str = "create_arima_forecast_plot"
+    description: str = "Creates ARIMA forecast plot showing future predictions with confidence intervals from ARIMA model results."
+    args_schema: Type[BaseModel] = CreateARIMAForecastPlotInput
+    
+    def _run(self, arima_key: str = "", forecast_steps: int = 10, confidence_level: float = 0.95, title: str = "") -> str:
+        try:
+            # Check if ARIMA results exist in session state
+            if not hasattr(st, 'session_state') or 'arima_results' not in st.session_state:
+                return "❌ No ARIMA results found. Run ARIMA analysis first using 'run_arima' tool."
+            
+            # Get the most recent ARIMA result if no key specified
+            if not arima_key:
+                if not st.session_state.arima_results:
+                    return "❌ No ARIMA results available."
+                arima_key = list(st.session_state.arima_results.keys())[-1]
+            
+            if arima_key not in st.session_state.arima_results:
+                available_keys = list(st.session_state.arima_results.keys())
+                return f"❌ ARIMA result '{arima_key}' not found. Available results: {available_keys}"
+            
+            # Get ARIMA results
+            arima_result = st.session_state.arima_results[arima_key]
+            model = arima_result['model']
+            time_series = arima_result['time_series']
+            p, d, q = arima_result['order']
+            
+            # Generate forecast
+            forecast_result = model.forecast(steps=forecast_steps, alpha=1-confidence_level)
+            forecast_values = forecast_result
+            
+            # Get confidence intervals if available
+            try:
+                forecast_ci = model.get_forecast(steps=forecast_steps, alpha=1-confidence_level).conf_int()
+                lower_ci = forecast_ci.iloc[:, 0]
+                upper_ci = forecast_ci.iloc[:, 1]
+                has_ci = True
+            except:
+                # If confidence intervals not available, create simple bounds
+                forecast_std = np.std(time_series) * 0.5  # Conservative estimate
+                lower_ci = forecast_values - 1.96 * forecast_std
+                upper_ci = forecast_values + 1.96 * forecast_std
+                has_ci = False
+            
+            # Create time index for forecast
+            if hasattr(time_series, 'index'):
+                last_date = time_series.index[-1]
+                if hasattr(last_date, 'to_period'):
+                    # Handle datetime index
+                    forecast_index = pd.date_range(start=last_date + pd.Timedelta(days=1), periods=forecast_steps, freq='D')
+                else:
+                    # Handle numeric index
+                    forecast_index = range(len(time_series), len(time_series) + forecast_steps)
+            else:
+                forecast_index = range(len(time_series), len(time_series) + forecast_steps)
+            
+            # Create the forecast plot
+            fig = go.Figure()
+            
+            # Add historical data
+            historical_x = time_series.index if hasattr(time_series, 'index') else range(len(time_series))
+            fig.add_trace(go.Scatter(
+                x=historical_x,
+                y=time_series.values if hasattr(time_series, 'values') else time_series,
+                mode='lines',
+                name='Historical Data',
+                line=dict(color='blue', width=2),
+                hovertemplate='<b>Date</b>: %{x}<br><b>Value</b>: %{y:.4f}<extra></extra>'
+            ))
+            
+            # Add forecast
+            fig.add_trace(go.Scatter(
+                x=forecast_index,
+                y=forecast_values,
+                mode='lines',
+                name=f'Forecast (ARIMA({p},{d},{q}))',
+                line=dict(color='red', width=2, dash='dash'),
+                hovertemplate='<b>Date</b>: %{x}<br><b>Forecast</b>: %{y:.4f}<extra></extra>'
+            ))
+            
+            # Add confidence intervals
+            confidence_pct = int(confidence_level * 100)
+            fig.add_trace(go.Scatter(
+                x=list(forecast_index) + list(reversed(forecast_index)),
+                y=list(upper_ci) + list(reversed(lower_ci)),
+                fill='toself',
+                fillcolor='rgba(255, 0, 0, 0.2)',
+                line=dict(color='rgba(255,255,255,0)'),
+                name=f'{confidence_pct}% Confidence Interval',
+                hoverinfo='skip'
+            ))
+            
+            # Set chart title
+            chart_title = title if title else f"ARIMA({p},{d},{q}) Forecast - {arima_result.get('column_name', 'Time Series')}"
+            
+            # Update layout
+            fig.update_layout(
+                title=dict(text=chart_title, x=0.5, font=dict(size=16)),
+                xaxis_title="Time",
+                yaxis_title="Value",
+                hovermode='x unified',
+                height=500,
+                showlegend=True,
+                legend=dict(x=0.01, y=0.99, bgcolor='rgba(255,255,255,0.8)')
+            )
+            
+            # Store chart in session state
+            if 'charts' not in st.session_state:
+                st.session_state.charts = []
+            
+            chart_info = {
+                'type': 'arima_forecast_plot',
+                'title': chart_title,
+                'figure': fig,
+                'data': {
+                    'forecast_steps': forecast_steps,
+                    'confidence_level': confidence_level,
+                    'arima_order': f"({p},{d},{q})",
+                    'has_confidence_intervals': has_ci
+                }
+            }
+            
+            st.session_state.charts.append(chart_info)
+            
+            # Calculate forecast statistics
+            forecast_mean = np.mean(forecast_values)
+            forecast_std = np.std(forecast_values)
+            trend_direction = "upward" if forecast_values[-1] > forecast_values[0] else "downward" if forecast_values[-1] < forecast_values[0] else "stable"
+            
+            summary = f"""🔮 {chart_title}
+
+📈 Created ARIMA forecast plot with {forecast_steps} future predictions.
+
+🔮 Forecast Summary:
+  • Forecast steps: {forecast_steps}
+  • Confidence level: {confidence_pct}%
+  • Mean forecast: {forecast_mean:.4f}
+  • Forecast std dev: {forecast_std:.4f}
+  • Trend direction: {trend_direction}
+
+💡 Interpretation:
+  • Red dashed line: Future predictions
+  • Shaded area: {confidence_pct}% confidence interval
+  • Wider intervals = higher uncertainty
+  • Use for planning and decision-making"""
+
+            return summary
+            
+        except Exception as e:
+            return f"❌ Error creating ARIMA forecast plot: {str(e)}"
+
+    def _arun(self, arima_key: str = "", forecast_steps: int = 10, confidence_level: float = 0.95, title: str = ""):
+        raise NotImplementedError("Async not supported")
