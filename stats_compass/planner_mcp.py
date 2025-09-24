@@ -25,7 +25,9 @@ from stats_compass.tools.chart_tools import (
     CreateCorrelationHeatmapTool,
     CreateRegressionPlotTool,
     CreateResidualPlotTool,
-    CreateCoefficientChartTool,
+    CreateCoefficientChartTool
+)
+from stats_compass.tools.ml_chart_tools import (
     CreateFeatureImportanceChartTool,
     CreateROCCurveTool,
     CreatePrecisionRecallCurveTool
@@ -324,6 +326,23 @@ def run_mcp_planner(user_query: str, df: pd.DataFrame, chat_history: List[Dict] 
          "- If model performance is poor (low R²/AUC), WARN about reliability instead of making recommendations\n"
          "- Always reference the actual numerical results when giving business advice\n"
          "- Be direct: \"Focus on X over Y because X has coefficient 0.45 vs Y's 0.12\"\n\n"
+         "CRITICAL: MODEL PERFORMANCE INTERPRETATION - ALWAYS ASSESS MODEL QUALITY\n"
+         "When interpreting model results, ALWAYS provide a clear assessment of model quality using these specific guidelines:\n\n"
+         "FOR LINEAR REGRESSION (R² interpretation):\n"
+         "- R² ≥ 0.7: 'Excellent model - explains X% of variance, predictions are highly reliable'\n"
+         "- R² 0.5-0.7: 'Good model - explains X% of variance, predictions are reasonably reliable'\n"
+         "- R² 0.3-0.5: 'Moderate model - explains X% of variance, use predictions with caution'\n"
+         "- R² < 0.3: 'Poor model - only explains X% of variance, consider collecting more relevant features'\n\n"
+         "FOR LOGISTIC REGRESSION (AUC interpretation):\n"
+         "- AUC ≥ 0.8: 'Excellent classification model - shows strong discrimination ability (AUC: X)'\n"
+         "- AUC 0.7-0.8: 'Good classification model - shows adequate discrimination (AUC: X)'\n"
+         "- AUC 0.6-0.7: 'Fair classification model - shows weak discrimination (AUC: X), validate carefully'\n"
+         "- AUC < 0.6: 'Poor classification model - shows little discrimination (AUC: X), not reliable for decisions'\n\n"
+         "ACCURACY ASSESSMENT GUIDELINES:\n"
+         "- Always compare training vs test performance to assess overfitting\n"
+         "- If test performance is much lower than training (>10% difference), mention potential overfitting\n"
+         "- For classification: Also interpret precision, recall, and F1-score in business context\n"
+         "- Always conclude with overall model recommendation: 'ready for production', 'needs improvement', or 'not suitable for decisions'\n\n"
          "SMART ANALYSIS: You can immediately answer questions about available columns, data types, "
          "and suggest appropriate analysis without running dataset_preview first. Use your knowledge "
          "of the dataset structure to provide intelligent recommendations. Be proactive about data quality!"),
