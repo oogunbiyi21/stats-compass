@@ -57,6 +57,9 @@ from stats_compass.tools.ml_evaluation_tools import (
     EvaluateRegressionModelTool,
     EvaluateClassificationModelTool
 )
+from stats_compass.tools.ml_util_tools import (
+    MeanTargetEncodingTool
+)
 
 def generate_dataset_context(df: pd.DataFrame) -> str:
     """Generate a comprehensive context string about the dataset for the LLM"""
@@ -162,6 +165,9 @@ def run_mcp_planner(user_query: str, df: pd.DataFrame, chat_history: List[Dict] 
     evaluate_regression_tool = EvaluateRegressionModelTool()
     evaluate_classification_tool = EvaluateClassificationModelTool()
     
+    # ML Utility Tools
+    mean_target_encoding_tool = MeanTargetEncodingTool(df=df)
+    
     # ML Chart Tools (don't need df since they read from session state)
     regression_plot_tool = CreateRegressionPlotTool()
     residual_plot_tool = CreateResidualPlotTool()
@@ -188,6 +194,8 @@ def run_mcp_planner(user_query: str, df: pd.DataFrame, chat_history: List[Dict] 
         linear_regression_tool, logistic_regression_tool, arima_tool,
         # ML evaluation tools
         evaluate_regression_tool, evaluate_classification_tool,
+        # ML utility tools  
+        mean_target_encoding_tool,
         # ML chart tools
         regression_plot_tool, residual_plot_tool, coefficient_chart_tool, feature_importance_chart_tool,
         roc_curve_tool, precision_recall_curve_tool, arima_plot_tool, arima_forecast_plot_tool
@@ -262,10 +270,18 @@ def run_mcp_planner(user_query: str, df: pd.DataFrame, chat_history: List[Dict] 
          "  • Model assumption checking and performance evaluation\n"
          "- run_arima_analysis: Time series forecasting using ARIMA models\n"
          "  • Simple ARIMA(p,d,q) modeling for univariate time series\n"
-         "  • Automatic stationarity testing and model fitting\n"
+         "  • Time slicing: Use start_date/end_date to analyze specific periods\n"
+         "  • Automatic stationarity testing and overfitting detection\n"
          "  • Forecast generation with confidence intervals\n"
-         "  • Model performance metrics (AIC, BIC, RMSE, MAE)\n"
+         "  • Model performance metrics (AIC, BIC, RMSE, MAE, R²)\n"
+         "  • Enhanced diagnostics for model quality assessment\n"
          "  • Stores results for time series visualization tools\n"
+         "- mean_target_encoding: Convert categorical variables to numeric using target means\n"
+         "  • Essential preprocessing for supervised learning with categorical features\n"
+         "  • Uses smoothing to prevent overfitting on rare categories\n"
+         "  • Handles unseen categories with global mean fallback\n"
+         "  • Creates new '_encoded' columns while preserving originals\n"
+         "  • Use BEFORE running regression/classification on categorical data\n"
          "- evaluate_regression_model: Comprehensive evaluation of fitted regression models - AUTOMATIC AFTER LINEAR REGRESSION\n"
          "  • Detailed metrics: R², RMSE, MAE, overfitting assessment, generalization analysis\n"
          "  • Statistical assumption checking: linearity, normality, homoscedasticity, independence\n"
@@ -324,6 +340,11 @@ def run_mcp_planner(user_query: str, df: pd.DataFrame, chat_history: List[Dict] 
          "   - If too much missing data (>50%), recommend against modeling until data quality improves\n"
          "   - For time series, consider forward-fill or interpolation for missing values\n"
          "   - Use your judgment: small amounts of missing data can proceed with complete case analysis\n"
+         "0.5. **CATEGORICAL VARIABLE PREPROCESSING:** For supervised learning with categorical features:\n"
+         "   - BEFORE running regression/classification, check for categorical variables (object/string columns)\n"
+         "   - If categorical variables exist, use mean_target_encoding to convert them to numeric\n"
+         "   - Use the '_encoded' columns in your regression, not the original categorical columns\n"
+         "   - This is ESSENTIAL - regression tools need numeric inputs only\n"
          "1. Run regression tool (run_linear_regression, run_logistic_regression, or run_arima_analysis)\n"
          "2. IMMEDIATELY run evaluation tool (evaluate_regression_model or evaluate_classification_model)\n"
          "3. Create visualization charts:\n"

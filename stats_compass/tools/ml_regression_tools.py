@@ -15,6 +15,7 @@ from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error, a
 from sklearn.preprocessing import StandardScaler
 from statsmodels.tsa.arima.model import ARIMA
 from statsmodels.tsa.stattools import adfuller
+from statsmodels.stats.diagnostic import acorr_ljungbox
 from scipy import stats
 import streamlit as st
 from typing import Type, Dict, List, Any, Optional, Tuple
@@ -50,10 +51,16 @@ class RunLinearRegressionTool(BaseTool):
     def __init__(self, df: pd.DataFrame):
         super().__init__()
         self._df = df
-        
+
+    def _get_current_df(self) -> pd.DataFrame:
+        """Get the most current dataframe, checking session state for updates"""
+        if hasattr(st, 'session_state') and 'df' in st.session_state:
+            return st.session_state.df
+        return self._df
+
     def _run(self, target_column: str, 
              feature_columns: Optional[List[str]] = None,
-             test_size: float = 0.2, 
+             test_size: float = 0.2,
              include_intercept: bool = True,
              standardize_features: bool = False) -> str:
         """
@@ -70,11 +77,14 @@ class RunLinearRegressionTool(BaseTool):
             String containing formatted results for display
         """
         try:
+            # Get the most current dataframe (includes any encoded columns)
+            df = self._get_current_df()
+            
             # Input validation
-            if target_column not in self._df.columns:
-                return f"❌ Target column '{target_column}' not found in dataset. Available columns: {list(self._df.columns)}"
+            if target_column not in df.columns:
+                return f"❌ Target column '{target_column}' not found in dataset. Available columns: {list(df.columns)}"
                 
-            if not pd.api.types.is_numeric_dtype(self._df[target_column]):
+            if not pd.api.types.is_numeric_dtype(df[target_column]):
                 return f"❌ Target column '{target_column}' must be numeric for regression"
                 
             if test_size < 0 or test_size > 0.5:
@@ -83,20 +93,20 @@ class RunLinearRegressionTool(BaseTool):
             # Prepare features
             if feature_columns is None:
                 # Use all numeric columns except target
-                numeric_cols = self._df.select_dtypes(include=[np.number]).columns.tolist()
+                numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
                 feature_columns = [col for col in numeric_cols if col != target_column]
                 
             if not feature_columns:
                 return "❌ No numeric feature columns available for regression"
                 
             # Check for missing feature columns
-            missing_cols = [col for col in feature_columns if col not in self._df.columns]
+            missing_cols = [col for col in feature_columns if col not in df.columns]
             if missing_cols:
                 return f"❌ Feature columns not found: {missing_cols}"
                 
             # Prepare data
-            X = self._df[feature_columns].copy()
-            y = self._df[target_column].copy()
+            X = df[feature_columns].copy()
+            y = df[target_column].copy()
             
             # Remove rows with missing values
             missing_mask = X.isnull().any(axis=1) | y.isnull()
@@ -325,6 +335,12 @@ class RunLogisticRegressionTool(BaseTool):
         super().__init__()
         self._df = df
         
+    def _get_current_df(self) -> pd.DataFrame:
+        """Get the most current dataframe, checking session state for updates"""
+        if hasattr(st, 'session_state') and 'df' in st.session_state:
+            return st.session_state.df
+        return self._df
+        
     def _run(self, target_column: str,
              feature_columns: Optional[List[str]] = None,
              test_size: float = 0.2,
@@ -344,17 +360,20 @@ class RunLogisticRegressionTool(BaseTool):
             Dictionary containing model results, metrics, and visualizations
         """
         try:
+            # Get the most current dataframe (includes any encoded columns)
+            df = self._get_current_df()
+            
             # Input validation
-            if target_column not in self._df.columns:
+            if target_column not in df.columns:
                 return {"error": f"Target column '{target_column}' not found in dataset"}
             
             # Check if target is binary
-            unique_values = self._df[target_column].dropna().unique()
+            unique_values = df[target_column].dropna().unique()
             if len(unique_values) != 2:
                 return {"error": f"Target column '{target_column}' must be binary (2 unique values). Found: {unique_values}"}
             
             # Convert target to 0/1 if needed
-            y_original = self._df[target_column].copy()
+            y_original = df[target_column].copy()
             if set(unique_values) == {True, False}:
                 y = y_original.astype(int)
             elif set(unique_values) == {0, 1}:
@@ -365,17 +384,17 @@ class RunLogisticRegressionTool(BaseTool):
                 
             # Prepare features
             if feature_columns is None:
-                numeric_cols = self._df.select_dtypes(include=[np.number]).columns.tolist()
+                numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
                 feature_columns = [col for col in numeric_cols if col != target_column]
                 
             if not feature_columns:
                 return {"error": "No numeric feature columns available for logistic regression"}
                 
-            missing_cols = [col for col in feature_columns if col not in self._df.columns]
+            missing_cols = [col for col in feature_columns if col not in df.columns]
             if missing_cols:
                 return {"error": f"Feature columns not found: {missing_cols}"}
                 
-            X = self._df[feature_columns].copy()
+            X = df[feature_columns].copy()
             
             # Remove rows with missing values
             missing_mask = X.isnull().any(axis=1) | y.isnull()
@@ -565,6 +584,8 @@ class ARIMAInput(BaseModel):
     d: int = Field(default=1, description="Differencing order - degree of differencing")
     q: int = Field(default=1, description="Moving average (MA) order - size of moving average window")
     forecast_periods: int = Field(default=12, description="Number of periods to forecast into the future")
+    start_date: str = Field(default="", description="Start date for time slice (YYYY-MM-DD format, empty for full dataset)")
+    end_date: str = Field(default="", description="End date for time slice (YYYY-MM-DD format, empty for full dataset)")
 
 
 class RunARIMATool(BaseTool):
@@ -588,7 +609,7 @@ class RunARIMATool(BaseTool):
         super().__init__()
         self._df = df
 
-    def _run(self, time_column: str, value_column: str, p: int = 1, d: int = 1, q: int = 1, forecast_periods: int = 12) -> str:
+    def _run(self, time_column: str, value_column: str, p: int = 1, d: int = 1, q: int = 1, forecast_periods: int = 12, start_date: str = "", end_date: str = "") -> str:
         try:
             # Validate inputs
             if time_column not in self._df.columns:
@@ -611,6 +632,27 @@ class RunARIMATool(BaseTool):
                 return f"❌ Could not convert '{time_column}' to datetime format"
             
             df_work = df_work.sort_values(time_column).reset_index(drop=True)
+            
+            # Apply time slicing if dates provided
+            original_length = len(df_work)
+            if start_date or end_date:
+                try:
+                    if start_date:
+                        start_dt = pd.to_datetime(start_date)
+                        df_work = df_work[df_work[time_column] >= start_dt]
+                    if end_date:
+                        end_dt = pd.to_datetime(end_date)
+                        df_work = df_work[df_work[time_column] <= end_dt]
+                    
+                    if len(df_work) == 0:
+                        return f"❌ No data found in specified date range: {start_date} to {end_date}"
+                    
+                    df_work = df_work.reset_index(drop=True)
+                    slice_info = f" (sliced from {original_length} to {len(df_work)} observations)"
+                except Exception as e:
+                    return f"❌ Error processing date range: {str(e)}"
+            else:
+                slice_info = ""
             
             # Ensure numeric values
             try:
@@ -636,6 +678,29 @@ class RunARIMATool(BaseTool):
             fitted_values = fitted_model.fittedvalues
             residuals = fitted_model.resid
             
+            # Diagnostic checks for overfitting
+            # 1. Check if model is just following noise (R² too high for time series)
+            actual_subset = time_series[len(time_series) - len(fitted_values):]
+            ss_res = np.sum(residuals**2)
+            ss_tot = np.sum((actual_subset - np.mean(actual_subset))**2)
+            r_squared = 1 - (ss_res / ss_tot) if ss_tot != 0 else 0
+            
+            # 2. Check residual patterns (should be white noise)
+            residual_autocorr = np.corrcoef(residuals[:-1], residuals[1:])[0, 1] if len(residuals) > 1 else 0
+            
+            # 3. Check if fitted values are too close to actual (overfitting indicator)
+            mean_abs_error = np.mean(np.abs(residuals))
+            data_std = np.std(actual_subset)
+            overfitting_ratio = mean_abs_error / data_std if data_std > 0 else 0
+            
+            # 4. Ljung-Box test for residual autocorrelation (if available)
+            try:
+                
+                ljung_box = acorr_ljungbox(residuals, lags=10, return_df=True)
+                ljung_box_pvalue = ljung_box['lb_pvalue'].iloc[-1]
+            except:
+                ljung_box_pvalue = None
+            
             # Create forecast dates
             last_date = df_work[time_column].iloc[-1]
             
@@ -653,9 +718,13 @@ class RunARIMATool(BaseTool):
                     st.session_state.arima_results = {}
                 
                 arima_key = f"arima_{value_column}"
+                
+                # Create time series with proper datetime index
+                time_series_with_index = pd.Series(time_series, index=df_work[time_column])
+                
                 st.session_state.arima_results[arima_key] = {
                     'model': fitted_model,
-                    'time_series': time_series,
+                    'time_series': time_series_with_index,  # Now has datetime index
                     'fitted_values': fitted_values,
                     'residuals': residuals,
                     'forecast': forecast_result.values if hasattr(forecast_result, 'values') else forecast_result,
@@ -663,18 +732,30 @@ class RunARIMATool(BaseTool):
                     'time_column': time_column,
                     'value_column': value_column,
                     'original_dates': df_work[time_column].values,
-                    'forecast_dates': forecast_dates,
+                    'forecast_dates': forecast_dates.values,  # Ensure it's stored as array
                     'order': (p, d, q),
                     'aic': fitted_model.aic,
                     'bic': fitted_model.bic,
                     'is_stationary': is_stationary,
-                    'adf_pvalue': adf_test[1]
+                    'adf_pvalue': adf_test[1],
+                    'slice_info': slice_info
                 }
             
             # Calculate performance metrics
             mse = np.mean(residuals**2)
             mae = np.mean(np.abs(residuals))
             rmse = np.sqrt(mse)
+            
+            # Overfitting diagnostics
+            overfitting_warnings = []
+            if r_squared > 0.95:
+                overfitting_warnings.append("⚠️ R² too high - possible overfitting")
+            if overfitting_ratio < 0.1:
+                overfitting_warnings.append("⚠️ Fitted values too close to actual - likely overfitting")
+            if abs(residual_autocorr) > 0.1:
+                overfitting_warnings.append("⚠️ Residuals show autocorrelation - model may be inadequate")
+            if ljung_box_pvalue is not None and ljung_box_pvalue < 0.05:
+                overfitting_warnings.append("⚠️ Ljung-Box test failed - residuals not white noise")
             
             # Generate summary
             result_lines = [
@@ -685,11 +766,26 @@ class RunARIMATool(BaseTool):
                 f"  • BIC (Bayesian Information Criterion): {fitted_model.bic:.2f}",
                 f"  • Root Mean Squared Error: {rmse:.4f}",
                 f"  • Mean Absolute Error: {mae:.4f}",
+                f"  • R-squared: {r_squared:.4f}",
                 f"",
                 f"📈 **Time Series Properties:**",
-                f"  • Data points: {len(time_series)}",
+                f"  • Data points: {len(time_series)}{slice_info}",
+                f"  • Date range: {df_work[time_column].min().strftime('%Y-%m-%d')} to {df_work[time_column].max().strftime('%Y-%m-%d')}",
                 f"  • Stationarity test (ADF): {'✅ Stationary' if is_stationary else '⚠️ Non-stationary'} (p-value: {adf_test[1]:.4f})",
                 f"  • Differencing applied: {d} {'time' if d == 1 else 'times'}",
+                f"",
+                f"🔍 **Model Diagnostics:**",
+                f"  • Residual autocorrelation: {residual_autocorr:.4f}",
+                f"  • Overfitting ratio (MAE/StdDev): {overfitting_ratio:.4f}",
+            ]
+            
+            # Add Ljung-Box p-value with proper formatting
+            if ljung_box_pvalue is not None:
+                result_lines.append(f"  • Ljung-Box p-value: {ljung_box_pvalue:.4f}")
+            else:
+                result_lines.append(f"  • Ljung-Box p-value: N/A")
+            
+            result_lines.extend([
                 f"",
                 f"🔮 **Forecast Summary:**",
                 f"  • Forecast periods: {forecast_periods}",
@@ -697,9 +793,19 @@ class RunARIMATool(BaseTool):
                 f"  • Average forecast value: {np.mean(forecast_result):.2f}",
                 f"",
                 f"📊 **Model Interpretation:**"
-            ]
+            ])
+            
+            # Add overfitting warnings if detected
+            if overfitting_warnings:
+                result_lines.append("")
+                result_lines.append("⚠️ **Potential Issues Detected:**")
+                for warning in overfitting_warnings:
+                    result_lines.append(f"  • {warning}")
+                result_lines.append("  • Consider: Lower order parameters, train/test split, or alternative models")
+                result_lines.append("")
             
             # Add model interpretation based on performance
+            result_lines.append("📊 **Model Interpretation:**")
             if fitted_model.aic < 100:
                 result_lines.append("  • Excellent model fit - AIC indicates strong predictive capability")
             elif fitted_model.aic < 200:

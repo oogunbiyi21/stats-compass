@@ -777,26 +777,26 @@ class CreateARIMAForecastPlotTool(BaseTool):
                 upper_ci = forecast_values + 1.96 * forecast_std
                 has_ci = False
             
-            # Create time index for forecast
-            if hasattr(time_series, 'index'):
+            # Create proper pandas DatetimeIndex for forecast
+            if hasattr(time_series, 'index') and hasattr(time_series.index[0], 'to_pydatetime'):
+                # Time series has proper datetime index
                 last_date = time_series.index[-1]
-                if hasattr(last_date, 'to_period'):
-                    # Handle datetime index
-                    forecast_index = pd.date_range(start=last_date + pd.Timedelta(days=1), periods=forecast_steps, freq='D')
-                else:
-                    # Handle numeric index
-                    forecast_index = range(len(time_series), len(time_series) + forecast_steps)
+                # Create forecast dates as pandas DatetimeIndex (not numpy array)
+                forecast_dates = pd.date_range(start=last_date + pd.Timedelta(days=1), periods=forecast_steps, freq='D')
             else:
-                forecast_index = range(len(time_series), len(time_series) + forecast_steps)
+                # Fallback: create simple numeric range if no datetime index
+                forecast_dates = list(range(len(time_series), len(time_series) + forecast_steps))
+            
+            # Simple historical data logic: show same number of days as forecast
+            historical_data = time_series.tail(forecast_steps) if len(time_series) > forecast_steps else time_series
             
             # Create the forecast plot
             fig = go.Figure()
             
-            # Add historical data
-            historical_x = time_series.index if hasattr(time_series, 'index') else range(len(time_series))
+            # Add historical data (balanced with forecast period)
             fig.add_trace(go.Scatter(
-                x=historical_x,
-                y=time_series.values if hasattr(time_series, 'values') else time_series,
+                x=historical_data.index if hasattr(historical_data, 'index') else range(len(historical_data)),
+                y=historical_data.values if hasattr(historical_data, 'values') else historical_data,
                 mode='lines',
                 name='Historical Data',
                 line=dict(color='blue', width=2),
@@ -805,7 +805,7 @@ class CreateARIMAForecastPlotTool(BaseTool):
             
             # Add forecast
             fig.add_trace(go.Scatter(
-                x=forecast_index,
+                x=forecast_dates,
                 y=forecast_values,
                 mode='lines',
                 name=f'Forecast (ARIMA({p},{d},{q}))',
@@ -816,7 +816,7 @@ class CreateARIMAForecastPlotTool(BaseTool):
             # Add confidence intervals
             confidence_pct = int(confidence_level * 100)
             fig.add_trace(go.Scatter(
-                x=list(forecast_index) + list(reversed(forecast_index)),
+                x=list(forecast_dates) + list(reversed(forecast_dates)),
                 y=list(upper_ci) + list(reversed(lower_ci)),
                 fill='toself',
                 fillcolor='rgba(255, 0, 0, 0.2)',
@@ -828,45 +828,74 @@ class CreateARIMAForecastPlotTool(BaseTool):
             # Set chart title
             chart_title = title if title else f"ARIMA({p},{d},{q}) Forecast - {arima_result.get('column_name', 'Time Series')}"
             
-            # Update layout
+            # Update layout with proper datetime formatting
             fig.update_layout(
                 title=dict(text=chart_title, x=0.5, font=dict(size=16)),
-                xaxis_title="Time",
+                xaxis_title="Date",
                 yaxis_title="Value",
+                xaxis=dict(
+                    type='date',
+                    tickformat='%Y-%m-%d',
+                    tickangle=-45
+                ),
                 hovermode='x unified',
                 height=500,
                 showlegend=True,
                 legend=dict(x=0.01, y=0.99, bgcolor='rgba(255,255,255,0.8)')
             )
             
-            # Store chart in session state
-            if 'charts' not in st.session_state:
-                st.session_state.charts = []
+            # Store chart data for Streamlit rendering
+            if hasattr(st, 'session_state'):
+                if 'current_response_charts' not in st.session_state:
+                    st.session_state.current_response_charts = []
             
-            chart_info = {
-                'type': 'arima_forecast_plot',
-                'title': chart_title,
-                'figure': fig,
-                'data': {
-                    'forecast_steps': forecast_steps,
-                    'confidence_level': confidence_level,
-                    'arima_order': f"({p},{d},{q})",
-                    'has_confidence_intervals': has_ci
+                chart_info = {
+                    'type': 'arima_forecast_plot',
+                    'title': chart_title,
+                    'figure': fig,
+                    'data': {
+                        'forecast_steps': forecast_steps,
+                        'confidence_level': confidence_level,
+                        'arima_order': f"({p},{d},{q})",
+                        'has_confidence_intervals': has_ci
+                    }
                 }
-            }
-            
-            st.session_state.charts.append(chart_info)
+                
+                st.session_state.current_response_charts.append(chart_info)
             
             # Calculate forecast statistics
             forecast_mean = np.mean(forecast_values)
             forecast_std = np.std(forecast_values)
             trend_direction = "upward" if forecast_values[-1] > forecast_values[0] else "downward" if forecast_values[-1] < forecast_values[0] else "stable"
             
+            # Calculate display information and safe datetime formatting
+            historical_points_shown = len(historical_data)
+            
+            # Safe datetime formatting
+            try:
+                if hasattr(historical_data, 'index') and len(historical_data) > 0:
+                    start_date_str = pd.to_datetime(historical_data.index[0]).strftime('%Y-%m-%d')
+                else:
+                    start_date_str = "N/A"
+                
+                if hasattr(forecast_dates, '__len__') and len(forecast_dates) > 0:
+                    end_date_str = pd.to_datetime(forecast_dates[-1]).strftime('%Y-%m-%d')
+                else:
+                    end_date_str = "N/A"
+            except:
+                start_date_str = "N/A"
+                end_date_str = "N/A"
+            
             summary = f"""🔮 {chart_title}
 
 📈 Created ARIMA forecast plot with {forecast_steps} future predictions.
 
-🔮 Forecast Summary:
+� Balanced View:
+  • Historical data shown: {historical_points_shown} days (matches forecast period)
+  • Chart balance: 50/50 recent history vs future forecast
+  • Date range: {start_date_str} to {end_date_str}
+
+�🔮 Forecast Summary:
   • Forecast steps: {forecast_steps}
   • Confidence level: {confidence_pct}%
   • Mean forecast: {forecast_mean:.4f}
@@ -874,10 +903,10 @@ class CreateARIMAForecastPlotTool(BaseTool):
   • Trend direction: {trend_direction}
 
 💡 Interpretation:
+  • Blue line: Recent historical data (same period as forecast)
   • Red dashed line: Future predictions
   • Shaded area: {confidence_pct}% confidence interval
-  • Wider intervals = higher uncertainty
-  • Use for planning and decision-making"""
+  • Balanced view optimal for trend comparison"""
 
             return summary
             

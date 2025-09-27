@@ -24,12 +24,19 @@ from utils.export_utils import (
     render_report_preview,
     create_narrative_summary
 )
+from utils.agent_transcript import (
+    AgentTranscriptLogger,
+    AgentTranscriptDisplay,
+    AgentTranscriptExporter,
+    store_session_transcripts,
+    render_transcript_history
+)
 from planner_mcp import run_mcp_planner
 from smart_suggestions import generate_smart_suggestions
 
 # ---------- Setup ----------
 load_dotenv()
-st.set_page_config(page_title="DS Auto Insights", layout="wide")
+st.set_page_config(page_title="Stats Compass", layout="wide")
 
 # Add authentication check
 try:
@@ -81,8 +88,16 @@ with st.sidebar:
     
     st.divider()
     
+    # Agent Transcript History Section
+    if st.button("🤖 View Agent Transcripts"):
+        st.session_state.show_transcripts = not st.session_state.get("show_transcripts", False)
     
-st.title("📊 DS Auto Insights")
+    if st.session_state.get("show_transcripts", False):
+        with st.expander("📜 Transcript History", expanded=True):
+            render_transcript_history()
+    
+    
+st.title("🧭 Stats Compass")
 st.subheader("Turn your raw datasets into structured insights instantly.")
 
 # ---------- Session State ----------
@@ -192,7 +207,7 @@ if not hasattr(st.session_state, 'df') or st.session_state.df is None:
 df_use = st.session_state.df
 
 # ---------- Tabs ----------
-tab1, tab2, tab3, tab4 = st.tabs(["Chat", "Summary", "Explore", "Reports"])
+tab1, tab2, tab3, tab4, tab5 = st.tabs(["Chat", "Summary", "Explore", "Reports", "Agent Logs"])
 
 with tab1:
     st.header("Chat")
@@ -356,6 +371,18 @@ with tab1:
                     final_text = f"❌ Agent error: {e}"
                     result = {}
 
+            # Process and display agent transcript
+            if isinstance(result, dict) and result.get("intermediate_steps"):
+                # Format the transcript
+                formatted_steps = AgentTranscriptLogger.format_intermediate_steps(result["intermediate_steps"])
+                transcript_summary = AgentTranscriptLogger.create_transcript_summary(formatted_steps, final_text)
+                
+                # Store in session state
+                store_session_transcripts(transcript_summary)
+                
+                # Display transcript expander (optional - user can hide it)
+                AgentTranscriptDisplay.render_transcript_expander(transcript_summary)
+
             # Display the actual response
             st.markdown(final_text)
 
@@ -486,3 +513,58 @@ with tab4:
         # Preview Section
         st.divider()
         render_report_preview(st.session_state.chat_history, filename)
+
+with tab5:
+    st.header("🤖 AI Agent Reasoning & Logs")
+    
+    st.markdown("""
+    This section shows how the AI agenCat thinks, what tools it uses, and the step-by-step reasoning 
+    behind each analysis. This is valuable for understanding the agent's decision-making process 
+    and for learning about data analysis workflows.
+    """)
+    
+    # Check if there are any transcripts
+    if "agent_transcripts" not in st.session_state or not st.session_state.agent_transcripts:
+        st.info("🤖 No agent activity yet. Start a conversation in the Chat tab to see agent reasoning!")
+        st.markdown("""
+        **What you'll see here:**
+        - 🧠 **Agent Reasoning**: The thought process behind each analysis
+        - 🔧 **Tool Usage**: Which data analysis tools were used and why
+        - 📊 **Step-by-Step Process**: Detailed breakdown of each analysis step
+        - 📥 **Export Options**: Download transcripts for documentation or learning
+        """)
+    else:
+        # Summary statistics
+        total_transcripts = len(st.session_state.agent_transcripts)
+        latest_transcript = st.session_state.agent_transcripts[-1]
+        
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("📜 Total Sessions", total_transcripts)
+        with col2:
+            st.metric("🔧 Tools in Latest", len(latest_transcript.get("tools_used", [])))
+        with col3:
+            st.metric("⚡ Steps in Latest", latest_transcript.get("total_steps", 0))
+        
+        st.divider()
+        
+        # Display option tabs
+        transcript_tab1, transcript_tab2 = st.tabs(["📖 Latest Session", "📚 All Sessions"])
+        
+        with transcript_tab1:
+            if st.session_state.agent_transcripts:
+                latest = st.session_state.agent_transcripts[-1]
+                st.subheader("🤖 Most Recent Agent Session")
+                AgentTranscriptDisplay.render_transcript_expander(latest, "Latest Agent Analysis")
+                
+                # Export options for latest
+                st.subheader("📥 Export Latest Session")
+                col1, col2 = st.columns(2)
+                with col1:
+                    AgentTranscriptExporter.create_downloadable_transcript(latest, "json", "latest")
+                with col2:
+                    AgentTranscriptExporter.create_downloadable_transcript(latest, "markdown", "latest")
+        
+        with transcript_tab2:
+            st.subheader("📜 Complete Session History")
+            render_transcript_history()
