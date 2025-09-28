@@ -364,19 +364,7 @@ with tab1:
                 except Exception as e:
                     final_text = f"❌ Agent error: {e}"
                     result = {}
-
-            # Process and display agent transcript
-            if isinstance(result, dict) and result.get("intermediate_steps"):
-                # Format the transcript
-                formatted_steps = AgentTranscriptLogger.format_intermediate_steps(result["intermediate_steps"])
-                transcript_summary = AgentTranscriptLogger.create_transcript_summary(formatted_steps, final_text)
-                
-                # Store in session state
-                store_session_transcripts(transcript_summary)
-                
-                # Display transcript expander (optional - user can hide it)
-                AgentTranscriptDisplay.render_transcript_expander(transcript_summary)
-
+                    
             # Display the actual response
             st.markdown(final_text)
 

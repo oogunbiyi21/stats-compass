@@ -50,56 +50,8 @@ class MeanTargetEncodingTool(BaseTool):
             if missing_cols:
                 return f"❌ Categorical columns not found: {missing_cols}. Available columns: {list(self._df.columns)}"
             
-            # Create a copy of the dataframe
+            # Create a copy of the dataframe early so we can reference it throughout
             df_encoded = self._df.copy()
-            
-            # Handle target column - convert categorical to numeric if needed
-            target_conversion_msg = ""
-            if not pd.api.types.is_numeric_dtype(df_encoded[target_column]):
-                # Check if it's a categorical that can be converted
-                unique_values = df_encoded[target_column].dropna().unique()
-        
-                if len(unique_values) == 2:
-                    # Binary categorical - map to 0/1
-                    sorted_values = sorted(unique_values.astype(str))
-                    value_map = {sorted_values[0]: 0, sorted_values[1]: 1}
-                    df_encoded[target_column] = df_encoded[target_column].map(value_map)
-                    target_conversion_msg = f"🔄 Converted binary categorical target '{target_column}' to numeric: {dict(zip(value_map.keys(), value_map.values()))}\n"
-                elif len(unique_values) == 1:
-                    # Single unique value - edge case
-                    value_map = {unique_values[0]: 0}
-                    df_encoded[target_column] = df_encoded[target_column].map(value_map)
-                    target_conversion_msg = f"⚠️ Target '{target_column}' has only one unique value '{unique_values[0]}' - mapped to 0\n"
-                # For multi-class targets, sklearn's TargetEncoder will handle it automatically
-            
-            # Handle continuous targets with too many unique values by binning
-            binning_msg = ""
-            unique_target_count = df_encoded[target_column].nunique()
-            if pd.api.types.is_numeric_dtype(df_encoded[target_column]) and unique_target_count > 50:
-                # For continuous targets with many unique values, bin them to prevent column explosion
-                target_values = df_encoded[target_column].dropna()
-                
-                # Use quantile-based binning to create more balanced bins
-                n_bins = min(20, max(5, unique_target_count // 10))  # Reasonable number of bins
-                
-                try:
-                    df_encoded[f'{target_column}_original'] = df_encoded[target_column].copy()
-                    df_encoded[target_column] = pd.qcut(
-                        df_encoded[target_column], 
-                        q=n_bins, 
-                        labels=False, 
-                        duplicates='drop'
-                    )
-                    binning_msg = f"📊 Binned continuous target '{target_column}' from {unique_target_count} unique values to {n_bins} quantile-based bins\n"
-                except Exception as e:
-                    # If quantile binning fails, use equal-width binning
-                    df_encoded[f'{target_column}_original'] = df_encoded[target_column].copy()
-                    df_encoded[target_column] = pd.cut(
-                        df_encoded[target_column], 
-                        bins=n_bins, 
-                        labels=False
-                    )
-                    binning_msg = f"📊 Binned continuous target '{target_column}' from {unique_target_count} unique values to {n_bins} equal-width bins\n"
             
             # Remove target column from categorical columns if it was mistakenly included
             if target_column in categorical_columns:
@@ -116,6 +68,16 @@ class MeanTargetEncodingTool(BaseTool):
             if not valid_categorical_columns:
                 return "❌ No valid categorical columns found for encoding."
             
+
+            # Target type handling
+            if pd.api.types.is_numeric_dtype(df_encoded[target_column]) and df_encoded[target_column].nunique() > 10:
+                effective_target_type = "continuous"
+            elif df_encoded[target_column].nunique() == 2:
+                effective_target_type = "binary"
+            else:
+                effective_target_type = "multiclass" 
+
+
             # Prepare smooth parameter for sklearn
             smooth_param = smooth
             if smooth == "auto":
@@ -129,7 +91,7 @@ class MeanTargetEncodingTool(BaseTool):
             # Create and configure the TargetEncoder
             encoder = TargetEncoder(
                 categories='auto',
-                target_type=target_type,
+                target_type=effective_target_type,
                 smooth=smooth_param,
                 cv=cv,
                 shuffle=True,
@@ -186,25 +148,18 @@ class MeanTargetEncodingTool(BaseTool):
                 f"",
             ]
             
-            # Add target conversion message if applicable
-            if target_conversion_msg:
-                summary_lines.append(target_conversion_msg)
-            
-            # Add binning message if applicable
-            if binning_msg:
-                summary_lines.append(binning_msg)
-            
             # Get unique target info
             unique_targets = len(np.unique(y_target))
             is_multiclass = unique_targets > 2
             
             summary_lines.extend([
                 f"📊 **Encoding Summary:**",
-                f"  • Target variable: {target_column} ({'multi-class' if is_multiclass else 'binary/continuous'})",
+                f"  • Target variable: {target_column} (treated as continuous for encoding)",
                 f"  • Unique target values: {unique_targets}",
                 f"  • Cross-validation folds: {cv}",
                 f"  • Smoothing: {smooth_param}",
-                f"  • Target type: {target_type}",
+                f"  • Target type used: {effective_target_type}",
+                f"  • Original target type requested: {target_type}",
                 f""
             ])
             

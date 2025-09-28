@@ -235,8 +235,9 @@ class ApplyBasicCleaningTool(BaseTool):
         try:
             cleaned_df, summary = apply_basic_cleaning(self._df, actions)
             
-            # Update the session state with cleaned data
+            # Update both session state and tool's internal DataFrame
             st.session_state.df = cleaned_df
+            self._df = cleaned_df  # This ensures subsequent tool calls see the updated data
             
             # Format the cleaning summary for the LLM
             result = f"✅ **Data Cleaning Applied**\n\n"
@@ -485,8 +486,9 @@ class ApplyImputationTool(BaseTool):
             else:
                 return f"❌ Invalid mode '{mode}'. Use 'auto' for automatic imputation or 'custom' for specific methods."
             
-            # Update the session state with imputed data
+            # Update both session state and tool's internal DataFrame
             st.session_state.df = imputed_df
+            self._df = imputed_df  # This ensures subsequent tool calls see the updated data
             result += f"You can now proceed with analysis on the cleaned dataset.\n"
             
             return result
