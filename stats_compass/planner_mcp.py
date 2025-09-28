@@ -58,7 +58,8 @@ from stats_compass.tools.ml_evaluation_tools import (
     EvaluateClassificationModelTool
 )
 from stats_compass.tools.ml_util_tools import (
-    MeanTargetEncodingTool
+    MeanTargetEncodingTool,
+    BinRareCategoriesTool
 )
 
 def generate_dataset_context(df: pd.DataFrame) -> str:
@@ -166,6 +167,7 @@ def run_mcp_planner(user_query: str, df: pd.DataFrame, chat_history: List[Dict] 
     evaluate_classification_tool = EvaluateClassificationModelTool()
     
     # ML Utility Tools
+    bin_rare_categories_tool = BinRareCategoriesTool(df=df)
     mean_target_encoding_tool = MeanTargetEncodingTool(df=df)
     
     # ML Chart Tools (don't need df since they read from session state)
@@ -195,7 +197,7 @@ def run_mcp_planner(user_query: str, df: pd.DataFrame, chat_history: List[Dict] 
         # ML evaluation tools
         evaluate_regression_tool, evaluate_classification_tool,
         # ML utility tools  
-        mean_target_encoding_tool,
+        bin_rare_categories_tool, mean_target_encoding_tool,
         # ML chart tools
         regression_plot_tool, residual_plot_tool, coefficient_chart_tool, feature_importance_chart_tool,
         roc_curve_tool, precision_recall_curve_tool, arima_plot_tool, arima_forecast_plot_tool
@@ -280,6 +282,10 @@ def run_mcp_planner(user_query: str, df: pd.DataFrame, chat_history: List[Dict] 
          "  • Model performance metrics (AIC, BIC, RMSE, MAE, R²)\n"
          "  • Enhanced diagnostics for model quality assessment\n"
          "  • Stores results for time series visualization tools\n"
+         "- bin_rare_categories: Group infrequent categories (< 5%) into 'Other' to reduce noise\n"
+         "  • Simple heuristic: groups categories with < 5% frequency\n"
+         "  • Helps reduce noise and improve model performance\n"
+         "  • Use BEFORE target encoding for categorical variables with many rare categories\n"
          "- mean_target_encoding: Convert categorical variables to numeric using target means\n"
          "  • Essential preprocessing for supervised learning with categorical features\n"
          "  • Uses smoothing to prevent overfitting on rare categories\n"
@@ -369,11 +375,14 @@ def run_mcp_planner(user_query: str, df: pd.DataFrame, chat_history: List[Dict] 
          "   - **IMPORTANT:** If data cleaning is needed, follow the USER PERMISSION PROTOCOL above\n"
          "0.5. **CATEGORICAL VARIABLE PREPROCESSING (PROACTIVE):** For ANY machine learning request:\n"
          "   - **AUTOMATICALLY** scan for categorical variables (object/string columns) when user mentions ML\n"
-         "   - **PROACTIVELY** suggest encoding without waiting for user to ask: 'I notice you have categorical variables. Let me encode them first.'\n"
-         "   - **IMMEDIATELY** apply mean_target_encoding if categorical variables are found\n"
+         "   - **PROACTIVELY** suggest encoding without waiting for user to ask: 'I notice you have categorical variables. Let me preprocess them first.'\n"
+         "   - **STEP 1:** Apply bin_rare_categories first if categorical variables have many unique values (> 10 categories)\n"
+         "     • This groups rare categories (< 5% frequency) into 'Other' to reduce noise\n"
+         "     • Skip if categories are already well-distributed\n"
+         "   - **STEP 2:** Apply mean_target_encoding to all categorical variables (including binned ones)\n"
          "   - Use the '_encoded' columns in your regression, not the original categorical columns\n"
          "   - This is ESSENTIAL - regression tools need numeric inputs only\n"
-         "   - **IMPORTANT:** If multiple columns need encoding, follow the USER PERMISSION PROTOCOL above\n"
+         "   - **IMPORTANT:** If multiple columns need preprocessing, follow the USER PERMISSION PROTOCOL above\n"
          "1. **COMPLETE ML WORKFLOW (SINGLE EXECUTION):** When running any ML model:\n"
          "   - Run regression tool (run_linear_regression, run_logistic_regression, or run_arima_analysis)\n"
          "   - IMMEDIATELY follow with evaluation tool (evaluate_regression_model or evaluate_classification_model)\n"

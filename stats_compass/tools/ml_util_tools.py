@@ -189,3 +189,123 @@ class MeanTargetEncodingTool(BaseTool):
     def _arun(self, categorical_columns: List[str], target_column: str, cv: int = 5, 
               smooth: str = "auto", target_type: str = "auto"):
         raise NotImplementedError("Async not supported")
+
+class BinRareCategoriesInput(BaseModel):
+    categorical_columns: List[str] = Field(description="List of categorical column names to encode")
+    target_column: str = Field(description="Target variable column name for computing means")
+    threshold: float = Field(default=0.05, description="Percentage threshold below which categories are considered rare")
+
+class BinRareCategoriesTool(BaseTool):
+    """
+    Simple tool to bin rare categories in categorical variables.
+    
+    Groups infrequent categories into a single 'Other' category based on a specified threshold.
+    Helps reduce noise and improve model performance by limiting the number of unique categories.
+    """
+    
+    name: str = "bin_rare_categories"
+    description: str = "Bin rare categories in categorical variables into 'Other' based on frequency threshold"
+    args_schema: Type[BaseModel] = BinRareCategoriesInput
+
+    _df: pd.DataFrame
+
+    def __init__(self, df: pd.DataFrame):
+        super().__init__()
+        self._df = df
+
+    def _run(self, categorical_columns: List[str], target_column: str, threshold: float = 0.05) -> str:
+        try:
+            # Validate inputs
+            if target_column not in self._df.columns:
+                return f"❌ Target column '{target_column}' not found. Available columns: {list(self._df.columns)}"
+            
+            missing_cols = [col for col in categorical_columns if col not in self._df.columns]
+            if missing_cols:
+                return f"❌ Categorical columns not found: {missing_cols}. Available columns: {list(self._df.columns)}"
+            
+            # Create a copy of the dataframe early so we can reference it throughout
+            df_binned = self._df.copy()
+            
+            # Remove target column from categorical columns if it was mistakenly included
+            if target_column in categorical_columns:
+                categorical_columns.remove(target_column)
+            
+            # Validate categorical columns exist and are actually categorical
+            valid_categorical_columns = []
+            for col in categorical_columns:
+                if df_binned[col].dtype == 'object' or df_binned[col].dtype.name == 'category':
+                    valid_categorical_columns.append(col)
+                else:
+                    return f"❌ Column '{col}' appears to be numeric, not categorical. Unique values: {df_binned[col].nunique()}"
+            
+            if not valid_categorical_columns:
+                return "❌ No valid categorical columns found for binning."
+            
+            # Binning rare categories
+            rare_category_feature_list = []
+            for col in valid_categorical_columns:
+                value_counts = df_binned[col].value_counts(normalize=True)
+                rare_categories = value_counts[value_counts < threshold].index
+                if rare_categories.any():
+                    rare_category_feature_list.append(col)
+                    # Replace rare categories with 'Other'
+                    df_binned[col] = df_binned[col].replace(rare_categories, 'Other')
+            
+            binned_features_string = ', '.join(rare_category_feature_list) if rare_category_feature_list else 'None'
+
+            # Also update the main session state dataframe that all tools share
+            if hasattr(st, 'session_state'):
+                if 'df' in st.session_state:
+                    st.session_state.df = df_binned
+                
+                # Store detailed encoding information for reference
+                if 'binned_dataframes' not in st.session_state:
+                    st.session_state.binned_dataframes = {}
+                
+                binned_key = f"binned_{len(st.session_state.binned_dataframes)}"
+                st.session_state.binned_dataframes[binned_key] = {
+                    'dataframe': df_binned,
+                    'original_columns': valid_categorical_columns,
+                    'binned_features': binned_features_string,
+                    'target_column': target_column,
+                    'threshold': threshold,
+                }
+
+            # Generate summary report
+            summary_lines = [
+                f"🎯 **Rare category binning applied**",
+                f"",
+            ]
+            
+            
+            summary_lines.extend([
+                f"📊 **Binning Summary:**",
+                f"  • Target variable: {target_column}",
+                f"  • Categorical features: {valid_categorical_columns}",
+                f"  • Binning threshold: {threshold} (categories with frequency below this are binned to 'Other')",
+                f"  • Binned features: {binned_features_string}",
+            ])
+
+            for col in valid_categorical_columns:
+                value_counts = df_binned[col].value_counts()
+                summary_lines.extend([
+                    f"📋 **{col}:**",
+                    f"  • Unique categories after binning: {value_counts.nunique()}",
+                    f"  • Categories and counts: {value_counts.to_dict()}",
+                    f""
+                ])
+            
+            summary_lines.extend([
+                f"💡 **Usage Notes:**",
+                f"  • Helps reduce noise from infrequent categories",
+                f"  • Original columns preserved for reference",
+                f"  • Use binned columns for ML models"
+            ])
+            
+            return '\n'.join(summary_lines)
+        except Exception as e:
+            return f"❌ Error in binning rare categories: {str(e)}"
+        
+    def _arun(self, categorical_columns: List[str], target_column: str, threshold: float = 0.05):
+        raise NotImplementedError("Async not supported")
+    
