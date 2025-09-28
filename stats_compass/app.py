@@ -21,6 +21,8 @@ from utils.export_utils import (
     render_export_buttons,
     render_text_export_buttons,
     render_data_export_buttons,
+    render_dataframe_export_buttons,
+    render_model_export_buttons,
     render_report_preview,
     create_narrative_summary
 )
@@ -88,14 +90,6 @@ with st.sidebar:
     
     st.divider()
     
-    # Agent Transcript History Section
-    if st.button("🤖 View Agent Transcripts"):
-        st.session_state.show_transcripts = not st.session_state.get("show_transcripts", False)
-    
-    if st.session_state.get("show_transcripts", False):
-        with st.expander("📜 Transcript History", expanded=True):
-            render_transcript_history()
-    
     
 st.title("🧭 Stats Compass")
 st.subheader("Turn your raw datasets into structured insights instantly.")
@@ -121,12 +115,12 @@ if "df" not in st.session_state or st.session_state.df is None:
     
     # Process the uploaded file
     if process_uploaded_file(uploaded_file):
-        with st.expander("📊Dataset preview", expanded=False):
-            st.dataframe(st.session_state.df.head(), use_container_width=True)
         with st.sidebar:
             st.success(f"✅ Loaded {st.session_state.df.shape[0]:,} rows × {st.session_state.df.shape[1]:,} columns")
             mem_mb = st.session_state.df.memory_usage(deep=True).sum() / (1024**2)
             st.caption(f"Approx. memory usage: {mem_mb:.2f} MB")
+            with st.expander("📊Dataset preview", expanded=False):
+                st.dataframe(st.session_state.df.head(), use_container_width=True)
             st.divider()
             st.rerun()
 else:
@@ -424,8 +418,61 @@ with tab1:
         st.session_state.to_process = user_query
         st.rerun()
 
-
 with tab2:
+    st.header("📄 Reports & Export")
+    
+    if not st.session_state.chat_history:
+        st.info("💬 Start a conversation in the Chat tab to generate reports.")
+    else:
+        # Session statistics
+        render_session_summary(st.session_state.chat_history, location="tab")
+        
+        st.divider()
+
+        # Export Options
+        st.subheader("⬇️ Export Options")
+        
+        # Create tabs for different export types
+        export_tab1, export_tab2, export_tab3, export_tab4 = st.tabs([
+            "📝 Reports", "📊 Charts", "💾 Data", "🤖 Models"
+        ])
+        
+        with export_tab1:
+            st.markdown("**Text Reports & Analysis**")
+            render_text_export_buttons(st.session_state.chat_history, filename, location="tab")
+        
+        with export_tab2:
+            st.markdown("**Charts & Session Data**")  
+            render_data_export_buttons(st.session_state.chat_history, filename, location="tab")
+        
+        with export_tab3:
+            st.markdown("**Raw & Processed Data**")
+            render_dataframe_export_buttons(filename, location="tab")
+        
+        with export_tab4:
+            st.markdown("**Trained Models & Analysis Objects**")
+            render_model_export_buttons(filename, location="tab")
+        
+
+        # Report Generation Section
+        st.divider()
+        st.subheader("📊 Generate Reports")
+        
+        filename = uploaded_file.name if uploaded_file else "dataset"
+        
+        # Narrative Summary
+        with st.expander("📖 View Narrative Summary", expanded=True):
+            try:
+                narrative = create_narrative_summary(st.session_state.chat_history)
+                st.markdown(narrative)
+            except Exception as e:
+                st.error(f"Error generating narrative: {e}")
+
+        # Preview Section
+        st.divider()
+        render_report_preview(st.session_state.chat_history, filename)
+
+with tab3:
     st.header("Summary")
     summary, missing_by_col, numeric_desc, top_cats = summarise_dataset(df_use)
 
@@ -450,7 +497,7 @@ with tab2:
             st.write(f"• {col}")
             st.bar_chart(vc, use_container_width=True)
 
-with tab3:
+with tab4:
     st.header("Explore")
     st.markdown("**Numeric correlation matrix (table view)**")
     corr = key_trends_numeric_only(df_use)
@@ -473,52 +520,11 @@ with tab3:
                 st.error(f"Failed to render: {e}")
 
 
-with tab4:
-    st.header("📄 Reports & Export")
-    
-    if not st.session_state.chat_history:
-        st.info("💬 Start a conversation in the Chat tab to generate reports.")
-    else:
-        # Session statistics
-        render_session_summary(st.session_state.chat_history, location="tab")
-        
-        st.divider()
-        
-        # Report Generation Section
-        st.subheader("📊 Generate Reports")
-        
-        filename = uploaded_file.name if uploaded_file else "dataset"
-        
-        # Narrative Summary
-        with st.expander("📖 View Narrative Summary", expanded=True):
-            try:
-                narrative = create_narrative_summary(st.session_state.chat_history)
-                st.markdown(narrative)
-            except Exception as e:
-                st.error(f"Error generating narrative: {e}")
-        
-        # Export Options
-        st.subheader("⬇️ Export Options")
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.markdown("**📝 Text Reports**")
-            render_text_export_buttons(st.session_state.chat_history, filename, location="tab")
-        
-        with col2:
-            st.markdown("**📊 Data & Charts**")
-            render_data_export_buttons(st.session_state.chat_history, filename, location="tab")
-        
-        # Preview Section
-        st.divider()
-        render_report_preview(st.session_state.chat_history, filename)
-
 with tab5:
     st.header("🤖 AI Agent Reasoning & Logs")
     
     st.markdown("""
-    This section shows how the AI agenCat thinks, what tools it uses, and the step-by-step reasoning 
+    This section shows how the AI agent thinks, what tools it uses, and the step-by-step reasoning 
     behind each analysis. This is valuable for understanding the agent's decision-making process 
     and for learning about data analysis workflows.
     """)

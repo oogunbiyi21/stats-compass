@@ -568,12 +568,18 @@ class CreatePrecisionRecallCurveTool(BaseTool):
 
     def _interpret_ap(self, ap_score, baseline):
         """Interpret Average Precision score"""
-        if ap_score >= baseline * 2:
+        # AP scores range from 0 to 1, with 1 being perfect
+        # Compare to baseline but use absolute thresholds for interpretation
+        if ap_score >= 0.9:
             return "Excellent"
-        elif ap_score >= baseline * 1.5:
+        elif ap_score >= 0.8:
+            return "Very Good"
+        elif ap_score >= 0.7:
             return "Good"
-        elif ap_score >= baseline * 1.2:
+        elif ap_score >= 0.6:
             return "Fair"
+        elif ap_score > baseline:
+            return "Better than random"
         else:
             return "Poor"
 

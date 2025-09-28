@@ -117,7 +117,8 @@ def process_uploaded_file(uploaded_file, clear_history=False):
             
         else:
             # Success - store in session state
-            st.session_state.df = df
+            st.session_state.df = df.copy()  # Current working dataframe
+            st.session_state.original_df = df.copy()  # Preserve original for exports
             st.session_state.uploaded_filename = uploaded_file.name
             
             if clear_history:

@@ -200,6 +200,119 @@ def generate_smart_suggestions(df: pd.DataFrame) -> List[Dict[str, Any]]:
         "why": "Understanding data quality is essential before deeper analysis"
     })
     
+    # MACHINE LEARNING SUGGESTIONS (always include at least one)
+    ml_suggestions = []
+    
+    # Regression suggestions (if we have numeric target candidates)
+    if len(analysis['numeric_columns']) >= 2:
+        target_col = analysis['numeric_columns'][0]  # Use first numeric as potential target
+        feature_cols = analysis['numeric_columns'][1:4]  # Next 3 as features
+        
+        ml_suggestions.append({
+            "title": f"🤖 Linear Regression: Predict {target_col}",
+            "description": f"Build a model to predict {target_col} using other variables",
+            "query": f"Build a linear regression model to predict {target_col}",
+            "tool": "run_linear_regression",
+            "priority": 8,
+            "category": "ml",
+            "why": f"Predict {target_col} using regression - reveals what factors drive this outcome"
+        })
+    
+    # Classification suggestions (if we have categorical targets and numeric features)
+    if analysis['categorical_columns'] and analysis['numeric_columns']:
+        target_col = analysis['categorical_columns'][0]  # Use first categorical as target
+        # Check if it's a reasonable classification target (not too many categories)
+        if len(df[target_col].unique()) <= 10:
+            ml_suggestions.append({
+                "title": f"🎯 Classification: Predict {target_col}",
+                "description": f"Build a model to classify {target_col} categories",
+                "query": f"Build a logistic regression model to predict {target_col}",
+                "tool": "run_logistic_regression", 
+                "priority": 8,
+                "category": "ml",
+                "why": f"Classify {target_col} categories - identify patterns that determine outcomes"
+            })
+    
+    # Time series ML (if we have time data)
+    if analysis['date_columns'] and analysis['numeric_columns']:
+        time_col = analysis['date_columns'][0]
+        target_col = analysis['numeric_columns'][0]
+        ml_suggestions.append({
+            "title": f"📈 ARIMA Forecasting: {target_col}",
+            "description": f"Forecast future values of {target_col} over time",
+            "query": f"Build an ARIMA model to forecast {target_col} using {time_col}",
+            "tool": "run_arima_analysis",
+            "priority": 9,
+            "category": "ml",
+            "why": f"Forecast {target_col} trends - predict future patterns from historical data"
+        })
+    
+    # Add at least one ML suggestion if we have any
+    if ml_suggestions:
+        suggestions.extend(ml_suggestions[:1])  # Add the highest priority ML suggestion
+    
+    # STATISTICAL TEST SUGGESTIONS (always include at least one)
+    stat_suggestions = []
+    
+    # T-test suggestions (comparing groups)
+    if analysis['categorical_columns'] and analysis['numeric_columns']:
+        cat_col = analysis['categorical_columns'][0]
+        num_col = analysis['numeric_columns'][0]
+        # Check if categorical has exactly 2 groups (perfect for t-test)
+        unique_groups = df[cat_col].nunique()
+        if unique_groups == 2:
+            stat_suggestions.append({
+                "title": f"📊 T-Test: {num_col} by {cat_col}",
+                "description": f"Test if {num_col} differs significantly between {cat_col} groups",
+                "query": f"Run a t-test to compare {num_col} between {cat_col} groups",
+                "tool": "run_t_test",
+                "priority": 7,
+                "category": "stats",
+                "why": f"Compare {num_col} across {cat_col} groups - test if differences are statistically significant"
+            })
+        elif unique_groups <= 5:
+            stat_suggestions.append({
+                "title": f"🧪 Statistical Test: {num_col} by {cat_col}",
+                "description": f"Test relationships between {num_col} and {cat_col}",
+                "query": f"Test if {num_col} varies significantly across {cat_col} groups",
+                "tool": "run_t_test", 
+                "priority": 6,
+                "category": "stats",
+                "why": f"Statistical testing reveals if group differences are meaningful or just random"
+            })
+    
+    # Chi-square test for categorical relationships
+    if len(analysis['categorical_columns']) >= 2:
+        cat1 = analysis['categorical_columns'][0]
+        cat2 = analysis['categorical_columns'][1]
+        stat_suggestions.append({
+            "title": f"🔗 Chi-Square Test: {cat1} vs {cat2}",
+            "description": f"Test if {cat1} and {cat2} are independent",
+            "query": f"Run a chi-square test between {cat1} and {cat2}",
+            "tool": "run_chi_square_test",
+            "priority": 6,
+            "category": "stats", 
+            "why": f"Test independence between categorical variables - are they related?"
+        })
+    
+    # Correlation significance test
+    if len(analysis['numeric_columns']) >= 2:
+        num1 = analysis['numeric_columns'][0]
+        num2 = analysis['numeric_columns'][1]
+        stat_suggestions.append({
+            "title": f"📈 Correlation Test: {num1} vs {num2}",
+            "description": f"Test if correlation between {num1} and {num2} is significant",
+            "query": f"Test the statistical significance of correlation between {num1} and {num2}",
+            "tool": "correlation_matrix",
+            "priority": 5,
+            "category": "stats",
+            "why": f"Statistical testing shows if correlations are meaningful or just coincidence"
+        })
+    
+    # Add at least one statistical test suggestion if we have any
+    if stat_suggestions:
+        suggestions.extend(stat_suggestions[:1])  # Add the highest priority statistical test
+    
     # Sort suggestions by priority (higher first) and limit to top suggestions
     suggestions.sort(key=lambda x: x['priority'], reverse=True)
     
@@ -215,7 +328,9 @@ def get_category_emoji(category: str) -> str:
         'distribution': '📊',
         'categorical': '🏷️',
         'segmentation': '🔍',
-        'quality': '🚨'
+        'quality': '🚨',
+        'ml': '🤖',
+        'stats': '📊'
     }
     return emoji_map.get(category, '💡')
 

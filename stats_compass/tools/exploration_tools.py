@@ -89,7 +89,7 @@ class RunPandasQueryToolInput(BaseModel):
 
 class RunPandasQueryTool(BaseTool):
     name: str = "run_pandas_query"
-    description: str = "Run a safe Python expression on the dataframe `df` (e.g. df.describe(), df['col'].mean()). Can create variables for complex analysis."
+    description: str = "Run safe Python expressions on dataframe `df`. Allows: df['col'].unique(), df.columns, df['col'] = df['col'].replace('old','new'), variable assignments. Blocks: df=new_df, imports, file operations."
     args_schema = RunPandasQueryToolInput
 
     _df: pd.DataFrame = PrivateAttr()
@@ -125,9 +125,9 @@ class RunPandasQueryTool(BaseTool):
         
         # Dangerous assignment patterns (protect core objects)
         dangerous_assignments = [
-            r"\bdf\s*=(?!=)",           # Don't overwrite main dataframe
-            r"\bpd\s*=(?!=)",           # Don't overwrite pandas
-            r"\bnp\s*=(?!=)",           # Don't overwrite numpy
+            r"^\s*df\s*=(?!=)",         # Don't overwrite main dataframe (but allow df['col'] = ...)
+            r"^\s*pd\s*=(?!=)",         # Don't overwrite pandas
+            r"^\s*np\s*=(?!=)",         # Don't overwrite numpy
             r".*=.*\.random\.",         # Block random data generation
             r".*=.*range\(\s*\d{6,}",   # Block large ranges (100k+ items)
             r".*=.*zeros\(\s*\d{6,}",   # Block large arrays
@@ -144,7 +144,7 @@ class RunPandasQueryTool(BaseTool):
         if any(re.search(pattern, full_query, re.IGNORECASE) for pattern in dangerous_assignments):
             return False
             
-            return True
+        return True
 
     def _run(self, query: str) -> str:
         if not self._is_safe_expression(query):
@@ -174,11 +174,37 @@ class RunPandasQueryTool(BaseTool):
                     "df": self._df, 
                     "pd": pd, 
                     "np": np,
+                    # Add basic Python types for common operations
+                    "str": str,
+                    "int": int,
+                    "float": float,
+                    "bool": bool,
+                    "list": list,
+                    "dict": dict,
+                    "len": len,
+                    "min": min,
+                    "max": max,
+                    "sum": sum,
+                    "abs": abs,
+                    "round": round,
                     **self._user_vars  # Include user variables from previous queries
                 }
                 
-                # Execute query
-                result = eval(query, {"__builtins__": {}}, safe_vars)
+                # Execute query - use exec for statements, eval for expressions
+                if '=' in query and not any(op in query for op in ['==', '!=', '<=', '>=']):
+                    # This looks like an assignment statement, use exec
+                    exec(query, {"__builtins__": {}}, safe_vars)
+                    result = "✅ Assignment completed successfully"
+                    
+                    # Update the tool's dataframe if it was modified
+                    if 'df' in safe_vars:
+                        self._df = safe_vars['df']
+                        # Also update session state
+                        if hasattr(st, 'session_state') and 'df' in st.session_state:
+                            st.session_state.df = safe_vars['df']
+                else:
+                    # This is an expression, use eval
+                    result = eval(query, {"__builtins__": {}}, safe_vars)
                 
                 # Update user variables (but protect core objects)
                 protected_keys = {'df', 'pd', 'np'}

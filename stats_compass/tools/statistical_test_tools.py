@@ -121,12 +121,27 @@ class RunTTestTool(BaseTool):
                     if len(group_values) != 2:
                         return f"❌ For two-sample t-test, group_values must contain exactly 2 values, got {len(group_values)}: {group_values}"
                     
+                    # Convert group_values to the same type as the data for comparison
+                    try:
+                        # Try to convert group_values to match the data type
+                        data_type = self._df[group_column].dtype
+                        if pd.api.types.is_numeric_dtype(data_type):
+                            # Convert to numeric if the column is numeric
+                            converted_group_values = [pd.to_numeric(gv) for gv in group_values]
+                        else:
+                            # Keep as strings if column is categorical/object
+                            converted_group_values = [str(gv) for gv in group_values]
+                            unique_groups = [str(ug) for ug in unique_groups]
+                    except (ValueError, TypeError):
+                        # If conversion fails, use original values
+                        converted_group_values = group_values
+                    
                     # Check if specified groups exist
-                    missing_groups = [g for g in group_values if g not in unique_groups]
+                    missing_groups = [g for g in converted_group_values if g not in unique_groups]
                     if missing_groups:
                         return f"❌ Groups not found in data: {missing_groups}. Available groups: {unique_groups}"
                     
-                    selected_groups = group_values
+                    selected_groups = converted_group_values
                 else:
                     if len(unique_groups) != 2:
                         return f"❌ Two-sample t-test requires exactly 2 groups, found {len(unique_groups)}: {unique_groups}. Use group_values parameter to specify which 2 groups to compare."
@@ -433,12 +448,27 @@ class RunZTestTool(BaseTool):
                     if len(group_values) != 2:
                         return f"❌ For two-sample z-test, group_values must contain exactly 2 values, got {len(group_values)}: {group_values}"
                     
+                    # Convert group_values to the same type as the data for comparison
+                    try:
+                        # Try to convert group_values to match the data type
+                        data_type = self._df[group_column].dtype
+                        if pd.api.types.is_numeric_dtype(data_type):
+                            # Convert to numeric if the column is numeric
+                            converted_group_values = [pd.to_numeric(gv) for gv in group_values]
+                        else:
+                            # Keep as strings if column is categorical/object
+                            converted_group_values = [str(gv) for gv in group_values]
+                            unique_groups = [str(ug) for ug in unique_groups]
+                    except (ValueError, TypeError):
+                        # If conversion fails, use original values
+                        converted_group_values = group_values
+                    
                     # Check if specified groups exist
-                    missing_groups = [g for g in group_values if g not in unique_groups]
+                    missing_groups = [g for g in converted_group_values if g not in unique_groups]
                     if missing_groups:
                         return f"❌ Groups not found in data: {missing_groups}. Available groups: {unique_groups}"
                     
-                    selected_groups = group_values
+                    selected_groups = converted_group_values
                 else:
                     if len(unique_groups) != 2:
                         return f"❌ Two-sample z-test requires exactly 2 groups, found {len(unique_groups)}: {unique_groups}. Use group_values parameter to specify which 2 groups to compare."
