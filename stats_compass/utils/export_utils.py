@@ -472,58 +472,97 @@ def render_dataframe_export_buttons(filename: str, location: str = "sidebar"):
     
     # Current dataframe exports
     if has_current_df:
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            if st.button("📄 Current CSV", key=f"current_csv{key_suffix}", 
-                        help="Download transformed data as CSV", use_container_width=True):
-                try:
-                    df_exports = create_dataframe_exports(filename)
-                    if 'current_csv' in df_exports:
-                        st.download_button(
-                            label="⬇️ Download Current CSV",
-                            data=df_exports['current_csv'],
-                            file_name=f"current_data_{filename}_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
-                            mime="text/csv",
-                            key=f"current_csv_download{key_suffix}",
-                            use_container_width=True
-                        )
-                except Exception as e:
-                    st.error(f"Error: {e}")
-        
-        with col2:
-            if st.button("📊 Current Excel", key=f"current_excel{key_suffix}", 
-                        help="Download transformed data as Excel", use_container_width=True):
-                try:
-                    df_exports = create_dataframe_exports(filename)
-                    if 'current_excel' in df_exports:
-                        st.download_button(
-                            label="⬇️ Download Current Excel",
-                            data=df_exports['current_excel'],
-                            file_name=f"current_data_{filename}_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
-                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                            key=f"current_excel_download{key_suffix}",
-                            use_container_width=True
-                        )
-                except Exception as e:
-                    st.error(f"Error: {e}")
-        
-        with col3:
-            if st.button("🔗 Current JSON", key=f"current_json{key_suffix}", 
-                        help="Download transformed data as JSON", use_container_width=True):
-                try:
-                    df_exports = create_dataframe_exports(filename)
-                    if 'current_json' in df_exports:
-                        st.download_button(
-                            label="⬇️ Download Current JSON",
-                            data=df_exports['current_json'],
-                            file_name=f"current_data_{filename}_{datetime.now().strftime('%Y%m%d_%H%M')}.json",
-                            mime="application/json",
-                            key=f"current_json_download{key_suffix}",
-                            use_container_width=True
-                        )
-                except Exception as e:
-                    st.error(f"Error: {e}")
+        if location == "sidebar":
+            # Compact layout for sidebar - 2 columns, most popular formats
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                if st.button("📄 CSV", key=f"current_csv{key_suffix}", 
+                            help="Download current data as CSV", use_container_width=True):
+                    try:
+                        df_exports = create_dataframe_exports(filename)
+                        if 'current_csv' in df_exports:
+                            st.download_button(
+                                label="⬇️ CSV",
+                                data=df_exports['current_csv'],
+                                file_name=f"current_data_{filename}_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+                                mime="text/csv",
+                                key=f"current_csv_download{key_suffix}",
+                                use_container_width=True
+                            )
+                    except Exception as e:
+                        st.error(f"Error: {e}")
+            
+            with col2:
+                if st.button("📊 Excel", key=f"current_excel{key_suffix}", 
+                            help="Download current data as Excel", use_container_width=True):
+                    try:
+                        df_exports = create_dataframe_exports(filename)
+                        if 'current_excel' in df_exports:
+                            st.download_button(
+                                label="⬇️ Excel",
+                                data=df_exports['current_excel'],
+                                file_name=f"current_data_{filename}_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
+                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                key=f"current_excel_download{key_suffix}",
+                                use_container_width=True
+                            )
+                    except Exception as e:
+                        st.error(f"Error: {e}")
+        else:
+            # Full layout for tabs - 3 columns
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                if st.button("📄 Current CSV", key=f"current_csv{key_suffix}", 
+                            help="Download transformed data as CSV", use_container_width=True):
+                    try:
+                        df_exports = create_dataframe_exports(filename)
+                        if 'current_csv' in df_exports:
+                            st.download_button(
+                                label="⬇️ Download Current CSV",
+                                data=df_exports['current_csv'],
+                                file_name=f"current_data_{filename}_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+                                mime="text/csv",
+                                key=f"current_csv_download{key_suffix}",
+                                use_container_width=True
+                            )
+                    except Exception as e:
+                        st.error(f"Error: {e}")
+            
+            with col2:
+                if st.button("📊 Current Excel", key=f"current_excel{key_suffix}", 
+                            help="Download transformed data as Excel", use_container_width=True):
+                    try:
+                        df_exports = create_dataframe_exports(filename)
+                        if 'current_excel' in df_exports:
+                            st.download_button(
+                                label="⬇️ Download Current Excel",
+                                data=df_exports['current_excel'],
+                                file_name=f"current_data_{filename}_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
+                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                key=f"current_excel_download{key_suffix}",
+                                use_container_width=True
+                            )
+                    except Exception as e:
+                        st.error(f"Error: {e}")
+            
+            with col3:
+                if st.button("🔗 Current JSON", key=f"current_json{key_suffix}", 
+                            help="Download transformed data as JSON", use_container_width=True):
+                    try:
+                        df_exports = create_dataframe_exports(filename)
+                        if 'current_json' in df_exports:
+                            st.download_button(
+                                label="⬇️ Download Current JSON",
+                                data=df_exports['current_json'],
+                                file_name=f"current_data_{filename}_{datetime.now().strftime('%Y%m%d_%H%M')}.json",
+                                mime="application/json",
+                                key=f"current_json_download{key_suffix}",
+                                use_container_width=True
+                            )
+                    except Exception as e:
+                        st.error(f"Error: {e}")
     
     # Original dataframe exports (only if different from current)
     if has_original_df and location == "tab":
@@ -688,6 +727,10 @@ def render_export_buttons(chat_history: list, filename: str, location: str = "si
     if location == "sidebar":
         render_text_export_buttons(chat_history, filename, location)
         render_data_export_buttons(chat_history, filename, location)
+        
+        # Add dataset download buttons to sidebar
+        st.markdown("**💾 Dataset Downloads**")
+        render_dataframe_export_buttons(filename, location)
     else:
         # For tab, this function is not used - use specific functions in columns
         pass

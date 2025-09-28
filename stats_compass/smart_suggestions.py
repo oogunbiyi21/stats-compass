@@ -189,6 +189,21 @@ def generate_smart_suggestions(df: pd.DataFrame) -> List[Dict[str, Any]]:
             "why": "Outliers often reveal data quality issues or interesting edge cases"
         })
     
+    # Data Quality - Missing Values Detection
+    missing_values_total = df.isnull().sum().sum()
+    missing_percentage = (missing_values_total / (len(df) * len(df.columns))) * 100
+    
+    if missing_values_total > 0:
+        suggestions.append({
+            "title": "🧹 Clean Dataset",
+            "description": f"Handle {missing_values_total:,} missing values ({missing_percentage:.1f}% of data)",
+            "query": "Clean my dataset by handling missing values and data quality issues",
+            "tool": "suggest_data_cleaning",
+            "priority": 8,  # High priority - data cleaning should come before analysis
+            "category": "quality",
+            "why": f"Found {missing_values_total:,} missing values - cleaning data improves analysis reliability"
+        })
+    
     # Data Quality Overview
     suggestions.append({
         "title": "🔍 Data Quality Check",
