@@ -39,19 +39,28 @@ class MeanTargetEncodingTool(BaseTool):
         super().__init__()
         self._df = df
 
+    def _get_current_df(self) -> pd.DataFrame:
+        """Get the most current dataframe, checking session state for updates"""
+        if hasattr(st, 'session_state') and 'df' in st.session_state:
+            return st.session_state.df
+        return self._df
+
     def _run(self, categorical_columns: List[str], target_column: str, cv: int = 5, 
              smooth: str = "auto", target_type: str = "auto") -> str:
         try:
-            # Validate inputs
-            if target_column not in self._df.columns:
-                return f"❌ Target column '{target_column}' not found. Available columns: {list(self._df.columns)}"
+            # Get the most current dataframe (includes any updates from imputation/cleaning)
+            current_df = self._get_current_df()
             
-            missing_cols = [col for col in categorical_columns if col not in self._df.columns]
+            # Validate inputs
+            if target_column not in current_df.columns:
+                return f"❌ Target column '{target_column}' not found. Available columns: {list(current_df.columns)}"
+            
+            missing_cols = [col for col in categorical_columns if col not in current_df.columns]
             if missing_cols:
-                return f"❌ Categorical columns not found: {missing_cols}. Available columns: {list(self._df.columns)}"
+                return f"❌ Categorical columns not found: {missing_cols}. Available columns: {list(current_df.columns)}"
             
             # Create a copy of the dataframe early so we can reference it throughout
-            df_encoded = self._df.copy()
+            df_encoded = current_df.copy()
             
             # Remove target column from categorical columns if it was mistakenly included
             if target_column in categorical_columns:
@@ -108,8 +117,24 @@ class MeanTargetEncodingTool(BaseTool):
             # Apply target encoding
             encoded_features = encoder.fit_transform(X_categorical_filled, y_target)
             
-            # Create encoded column names - sklearn TargetEncoder always produces one column per input feature
-            encoded_column_names = [f'{col}_encoded' for col in valid_categorical_columns]
+            # Handle dynamic column naming based on actual output shape
+            n_features = len(valid_categorical_columns)
+            n_output_cols = encoded_features.shape[1]
+            
+            if n_output_cols == n_features:
+                # Simple case: one column per feature (binary/continuous targets)
+                encoded_column_names = [f'{col}_encoded' for col in valid_categorical_columns]
+            else:
+                # Multiclass case: multiple columns per feature
+                n_classes = n_output_cols // n_features
+                encoded_column_names = []
+                for i, col in enumerate(valid_categorical_columns):
+                    if n_classes > 1:
+                        # Multiple columns per feature - name them with class suffixes
+                        for class_idx in range(n_classes):
+                            encoded_column_names.append(f'{col}_encoded_class_{class_idx}')
+                    else:
+                        encoded_column_names.append(f'{col}_encoded')
             
             # Add encoded columns to dataframe
             encoded_df = pd.DataFrame(encoded_features, columns=encoded_column_names, index=df_encoded.index)
@@ -138,7 +163,10 @@ class MeanTargetEncodingTool(BaseTool):
                     'parameters': {
                         'cv': cv,
                         'smooth': smooth_param,
-                        'target_type': target_type
+                        'target_type': target_type,
+                        'effective_target_type': effective_target_type,
+                        'n_output_columns': n_output_cols,
+                        'n_input_features': n_features
                     }
                 }
             
@@ -149,34 +177,53 @@ class MeanTargetEncodingTool(BaseTool):
             ]
             
             # Get unique target info
+            y_target = df_encoded[target_column]
             unique_targets = len(np.unique(y_target))
             is_multiclass = unique_targets > 2
+            n_features = len(valid_categorical_columns)
+            n_output_cols = len(encoded_column_names)
             
             summary_lines.extend([
                 f"📊 **Encoding Summary:**",
-                f"  • Target variable: {target_column} (treated as continuous for encoding)",
+                f"  • Target variable: {target_column}",
                 f"  • Unique target values: {unique_targets}",
-                f"  • Cross-validation folds: {cv}",
-                f"  • Smoothing: {smooth_param}",
                 f"  • Target type used: {effective_target_type}",
                 f"  • Original target type requested: {target_type}",
+                f"  • Cross-validation folds: {cv}",
+                f"  • Smoothing: {smooth_param}",
+                f"  • Input features: {n_features}",
+                f"  • Output columns: {n_output_cols}",
                 f""
             ])
             
+            # Show feature mapping details
+            cols_per_feature = n_output_cols // n_features if n_features > 0 else 1
             for i, col in enumerate(valid_categorical_columns):
-                unique_cats = X_categorical[col].nunique()
-                summary_lines.extend([
-                    f"📋 **{col} → {encoded_column_names[i]}:**",
-                    f"  • Original categories: {unique_cats}",
-                    f""
-                ])
+                unique_cats = df_encoded[col].nunique()
+                if cols_per_feature > 1:
+                    # Multiple columns per feature
+                    encoded_cols_for_feature = [name for name in encoded_column_names if name.startswith(f'{col}_encoded')]
+                    summary_lines.extend([
+                        f"📋 **{col} → {len(encoded_cols_for_feature)} columns:**",
+                        f"  • Original categories: {unique_cats}",
+                        f"  • Encoded columns: {', '.join(encoded_cols_for_feature)}",
+                        f""
+                    ])
+                else:
+                    # Single column per feature
+                    summary_lines.extend([
+                        f"� **{col} → {encoded_column_names[i]}:**",
+                        f"  • Original categories: {unique_cats}",
+                        f""
+                    ])
             
             summary_lines.extend([
                 f"💡 **Usage Notes:**",
                 f"  • Uses sklearn's TargetEncoder with cross-validation to prevent overfitting",
-                f"  • Handles multi-class targets automatically" if is_multiclass else "  • Handles binary/continuous targets directly",
+                f"  • Multiclass targets create multiple columns per feature (one per class)" if is_multiclass else "  • Binary/continuous targets create one column per feature",
+                f"  • Multiple columns provide richer encoding for complex target relationships" if is_multiclass else "  • Single columns provide efficient encoding for simple targets",
                 f"  • Original columns preserved for reference",
-                f"  • New encoded columns: {encoded_column_names}",
+                f"  • Total new encoded columns: {n_output_cols}",
                 f"  • Missing values handled automatically",
                 f"  • Use encoded columns for ML models"
             ])
@@ -213,30 +260,67 @@ class BinRareCategoriesTool(BaseTool):
         super().__init__()
         self._df = df
 
+    def _get_current_df(self) -> pd.DataFrame:
+        """Get the most current dataframe, checking session state for updates"""
+        if hasattr(st, 'session_state') and 'df' in st.session_state:
+            return st.session_state.df
+        return self._df
+
     def _run(self, categorical_columns: List[str], target_column: str, threshold: float = 0.05) -> str:
         try:
+            # Get the most current dataframe (includes any updates from imputation/cleaning)  
+            current_df = self._get_current_df()
+                
             # Validate inputs
-            if target_column not in self._df.columns:
-                return f"❌ Target column '{target_column}' not found. Available columns: {list(self._df.columns)}"
+            if target_column not in current_df.columns:
+                return f"❌ Target column '{target_column}' not found. Available columns: {list(current_df.columns)}"
             
-            missing_cols = [col for col in categorical_columns if col not in self._df.columns]
+            missing_cols = [col for col in categorical_columns if col not in current_df.columns]
             if missing_cols:
-                return f"❌ Categorical columns not found: {missing_cols}. Available columns: {list(self._df.columns)}"
+                return f"❌ Categorical columns not found: {missing_cols}. Available columns: {list(current_df.columns)}"
             
             # Create a copy of the dataframe early so we can reference it throughout
-            df_binned = self._df.copy()
+            df_binned = current_df.copy()
             
             # Remove target column from categorical columns if it was mistakenly included
             if target_column in categorical_columns:
                 categorical_columns.remove(target_column)
             
-            # Validate categorical columns exist and are actually categorical
+            # Validate categorical columns exist and detect data quality issues
             valid_categorical_columns = []
+            data_quality_issues = []
+            
             for col in categorical_columns:
                 if df_binned[col].dtype == 'object' or df_binned[col].dtype.name == 'category':
+                    # Check for corrupted data in object columns that should be numeric
+                    unique_vals = df_binned[col].dropna().unique()
+                    
+                    # Check if this looks like a corrupted numeric column
+                    numeric_looking = 0
+                    corrupt_values = []
+                    
+                    for val in unique_vals:
+                        try:
+                            float(str(val))
+                            numeric_looking += 1
+                        except (ValueError, TypeError):
+                            corrupt_values.append(val)
+                    
+                    # If most values are numeric but some aren't, flag as corrupted
+                    if numeric_looking > 0 and corrupt_values:
+                        total_vals = len(unique_vals)
+                        if numeric_looking / total_vals > 0.8:  # 80% numeric suggests corruption
+                            data_quality_issues.append(f"Column '{col}' appears to be a corrupted numeric column with invalid values: {corrupt_values}")
+                            continue  # Skip this column
+                    
                     valid_categorical_columns.append(col)
                 else:
                     return f"❌ Column '{col}' appears to be numeric, not categorical. Unique values: {df_binned[col].nunique()}"
+            
+            # Report data quality issues
+            if data_quality_issues:
+                issues_report = "\n".join([f"⚠️ {issue}" for issue in data_quality_issues])
+                return f"❌ Data quality issues detected:\n{issues_report}\n\n💡 Please clean the data first using data cleaning tools before binning categorical variables."
             
             if not valid_categorical_columns:
                 return "❌ No valid categorical columns found for binning."

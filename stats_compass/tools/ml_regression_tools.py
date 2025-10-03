@@ -307,26 +307,28 @@ class RunLinearRegressionTool(BaseTool):
 
 
 class LogisticRegressionInput(BaseModel):
-    target_column: str = Field(description="Binary column to predict (0/1 or True/False)")
+    target_column: str = Field(description="Column to predict (binary or multiclass classification)")
     feature_columns: Optional[List[str]] = Field(default=None, description="Columns to use as predictors (if None, use all numeric columns except target)")
     test_size: float = Field(default=0.2, description="Proportion of data for testing (0.0-0.5)")
     standardize_features: bool = Field(default=False, description="Whether to standardize features before fitting")
     class_weight: Optional[str] = Field(default=None, description="Handle class imbalance ('balanced' or None)")
+    multi_class: str = Field(default="auto", description="Multiclass strategy: 'auto', 'ovr' (one-vs-rest), or 'multinomial' (softmax)")
 
 
 class RunLogisticRegressionTool(BaseTool):
     """
-    Comprehensive logistic regression analysis tool for binary classification.
+    Comprehensive logistic regression analysis tool for binary and multiclass classification.
     
     Supports:
-    - Binary classification with probability predictions
-    - PM-friendly odds ratio interpretation  
+    - Binary classification with probability predictions and odds ratio interpretation
+    - Multiclass classification using one-vs-rest or multinomial (softmax) strategies
+    - PM-friendly coefficient interpretation  
     - Model diagnostics and assumption checking
     - Professional visualizations
     """
     
     name: str = "run_logistic_regression"
-    description: str = "Fit logistic regression models for binary classification with probability predictions and odds ratio interpretation"
+    description: str = "Fit logistic regression models for binary or multiclass classification with probability predictions and coefficient interpretation"
     args_schema: Type[BaseModel] = LogisticRegressionInput
 
     _df: pd.DataFrame = PrivateAttr()
@@ -345,19 +347,21 @@ class RunLogisticRegressionTool(BaseTool):
              feature_columns: Optional[List[str]] = None,
              test_size: float = 0.2,
              standardize_features: bool = False,
-             class_weight: Optional[str] = None) -> Dict[str, Any]:
+             class_weight: Optional[str] = None,
+             multi_class: str = "auto") -> str:
         """
         Execute logistic regression analysis.
         
         Args:
-            target_column: Binary column to predict (0/1 or True/False)
+            target_column: Column to predict (binary or multiclass)
             feature_columns: Columns to use as predictors
             test_size: Proportion of data for testing
             standardize_features: Whether to standardize features
             class_weight: Handle class imbalance ('balanced' or None)
+            multi_class: Multiclass strategy ('auto', 'ovr', or 'multinomial')
             
         Returns:
-            Dictionary containing model results, metrics, and visualizations
+            String containing formatted results for display
         """
         try:
             # Get the most current dataframe (includes any encoded columns)
@@ -367,22 +371,18 @@ class RunLogisticRegressionTool(BaseTool):
             if target_column not in df.columns:
                 return {"error": f"Target column '{target_column}' not found in dataset"}
             
-            # Check if target is binary
+            # Check target variable and determine classification type
             unique_values = df[target_column].dropna().unique()
-            if len(unique_values) != 2:
-                return {"error": f"Target column '{target_column}' must be binary (2 unique values). Found: {unique_values}"}
+            n_classes = len(unique_values)
             
-            # Convert target to 0/1 if needed
-            y_original = df[target_column].copy()
-            if set(unique_values) == {True, False}:
-                y = y_original.astype(int)
-            elif set(unique_values) == {0, 1}:
-                y = y_original
-            else:
-                # Map to 0/1
-                y = (y_original == unique_values[1]).astype(int)
-                
-            # Prepare features
+            if n_classes < 2:
+                return f"❌ Target column '{target_column}' must have at least 2 classes. Found: {unique_values}"
+            
+            # Determine if binary or multiclass
+            is_binary = n_classes == 2
+            is_multiclass = n_classes > 2
+            
+            # Prepare features first
             if feature_columns is None:
                 numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
                 feature_columns = [col for col in numeric_cols if col != target_column]
@@ -395,24 +395,42 @@ class RunLogisticRegressionTool(BaseTool):
                 return {"error": f"Feature columns not found: {missing_cols}"}
                 
             X = df[feature_columns].copy()
+            y_original = df[target_column].copy()
             
-            # Remove rows with missing values
-            missing_mask = X.isnull().any(axis=1) | y.isnull()
-            if missing_mask.sum() > 0:
-                X = X[~missing_mask]
-                y = y[~missing_mask]
-                missing_count = missing_mask.sum()
+            
+            # Now encode the clean target variable once
+            if is_binary:
+                # Convert binary target to 0/1 if needed
+                if set(unique_values) == {True, False}:
+                    y = y_original.astype(int)
+                elif set(unique_values) == {0, 1}:
+                    y = y_original
+                else:
+                    # Map to 0/1 for binary case
+                    y = (y_original == unique_values[1]).astype(int)
+            else:
+                # For multiclass, use label encoding to ensure integer labels
+                from sklearn.preprocessing import LabelEncoder
+                label_encoder = LabelEncoder()
+                y = label_encoder.fit_transform(y_original)
+                # Store the mapping for interpretation
+                class_mapping = dict(zip(label_encoder.classes_, range(len(label_encoder.classes_))))
                 
             # Check data sufficiency
-            if len(X) < 20:
-                return {"error": "Insufficient data for logistic regression (need at least 20 complete rows)"}
+            min_samples_per_class = 10 if is_binary else 5
+            if len(X) < max(20, n_classes * min_samples_per_class):
+                return f"❌ Insufficient data for logistic regression. Need at least {max(20, n_classes * min_samples_per_class)} complete rows for {n_classes} classes"
                 
             # Check class balance
-            class_counts = y.value_counts()
+            if is_binary:
+                class_counts = pd.Series(y).value_counts()
+            else:
+                class_counts = pd.Series(y).value_counts()
+            
             minority_class_pct = class_counts.min() / len(y) * 100
             
             if minority_class_pct < 5:
-                return {"warning": f"Severely imbalanced classes: {class_counts.to_dict()}. Consider using class_weight='balanced'"}
+                return f"❌ Severely imbalanced classes: {class_counts.to_dict()}. Consider using class_weight='balanced'"
             elif minority_class_pct < 20:
                 if class_weight is None:
                     class_weight = 'balanced'
@@ -443,28 +461,57 @@ class RunLogisticRegressionTool(BaseTool):
                 X_train_scaled = X_train
                 X_test_scaled = X_test
                 
+            # Determine multiclass strategy
+            if multi_class == "auto":
+                # Use multinomial for multiclass, leave default for binary
+                effective_multi_class = "multinomial" if is_multiclass else "auto"
+            else:
+                effective_multi_class = multi_class
+                
             # Fit model
             model = LogisticRegression(
                 class_weight=class_weight,
                 random_state=42,
-                max_iter=1000
+                max_iter=1000,
+                multi_class=effective_multi_class,
+                solver='lbfgs'  # Works well for both binary and multiclass
             )
             model.fit(X_train_scaled, y_train)
             
             # Make predictions
             y_train_pred = model.predict(X_train_scaled)
             y_test_pred = model.predict(X_test_scaled)
-            y_train_proba = model.predict_proba(X_train_scaled)[:, 1]
-            y_test_proba = model.predict_proba(X_test_scaled)[:, 1]
+            y_train_proba = model.predict_proba(X_train_scaled)
+            y_test_proba = model.predict_proba(X_test_scaled)
+            
+            # For binary classification, extract probability of positive class
+            if is_binary:
+                y_train_proba_positive = y_train_proba[:, 1]
+                y_test_proba_positive = y_test_proba[:, 1]
+            else:
+                # For multiclass, we'll use the max probability
+                y_train_proba_positive = np.max(y_train_proba, axis=1)
+                y_test_proba_positive = np.max(y_test_proba, axis=1)
             
             
-            # Coefficient analysis with odds ratios
-            coefficients = pd.DataFrame({
-                'feature': feature_columns,
-                'coefficient': model.coef_[0],
-                'odds_ratio': np.exp(model.coef_[0]),
-                'abs_coefficient': np.abs(model.coef_[0])
-            }).sort_values('abs_coefficient', ascending=False)
+            # Coefficient analysis
+            if is_binary:
+                # For binary classification, use odds ratios
+                coefficients = pd.DataFrame({
+                    'feature': feature_columns,
+                    'coefficient': model.coef_[0],
+                    'odds_ratio': np.exp(model.coef_[0]),
+                    'abs_coefficient': np.abs(model.coef_[0])
+                }).sort_values('abs_coefficient', ascending=False)
+            else:
+                # For multiclass, show coefficients for each class
+                # We'll focus on the average absolute coefficient across classes for ranking
+                avg_abs_coef = np.mean(np.abs(model.coef_), axis=0)
+                coefficients = pd.DataFrame({
+                    'feature': feature_columns,
+                    'avg_abs_coefficient': avg_abs_coef,
+                    'coefficients_by_class': [model.coef_[:, i] for i in range(len(feature_columns))]
+                }).sort_values('avg_abs_coefficient', ascending=False)
             
             # Store comprehensive results in session state for evaluation and chart tools
             if hasattr(st, 'session_state'):
@@ -489,44 +536,76 @@ class RunLogisticRegressionTool(BaseTool):
                     'coefficients': coefficients,
                     'standardized': standardize_features,
                     'class_weight': class_weight,
-                    'unique_values': unique_values
+                    'unique_values': unique_values,
+                    'is_binary': is_binary,
+                    'is_multiclass': is_multiclass,
+                    'n_classes': n_classes,
+                    'multi_class_strategy': effective_multi_class,
+                    'class_mapping': class_mapping if is_multiclass else None
                 }
             
-            # Format results as string for display (like linear regression)
-            result_lines = [f"📊 **Logistic Regression Analysis: {target_column}**\n"]
+            # Format results as string for display
+            classification_type = "Binary" if is_binary else f"Multiclass ({n_classes} classes)"
+            result_lines = [f"📊 **{classification_type} Logistic Regression Analysis: {target_column}**\n"]
             
             # Model summary
+            if is_binary:
+                classes_info = f"Classes: {unique_values[0]}, {unique_values[1]}"
+            else:
+                classes_info = f"Classes: {', '.join(map(str, unique_values))}"
+                
             result_lines.extend([
-                f"**Model Type:** Logistic Regression",
-                f"**Target Variable:** {target_column} (Classes: {unique_values[0]}, {unique_values[1]})",
+                f"**Model Type:** {classification_type} Logistic Regression",
+                f"**Target Variable:** {target_column} ({classes_info})",
                 f"**Features Used:** {', '.join(feature_columns)}",
                 f"**Observations:** {len(X):,} (after removing missing values)",
                 f"**Train/Test Split:** {int((1-test_size)*100)}/{int(test_size*100)}%" if test_size > 0 else "No split",
                 f"**Standardized Features:** {'Yes' if standardize_features else 'No'}",
                 f"**Class Balance:** {'Balanced' if class_weight == 'balanced' else 'Natural'}",
+                f"**Multiclass Strategy:** {effective_multi_class}" if is_multiclass else "",
                 f"",
                 f"📈 **Model Performance:**",
                 f"  • Training Accuracy = {accuracy_score(y_train, y_train_pred):.3f} ({accuracy_score(y_train, y_train_pred)*100:.1f}%)",
                 f"  • Test Accuracy = {accuracy_score(y_test, y_test_pred):.3f} ({accuracy_score(y_test, y_test_pred)*100:.1f}%)",
-                f"  • Training AUC = {roc_auc_score(y_train, y_train_proba):.3f}",
-                f"  • Test AUC = {roc_auc_score(y_test, y_test_proba):.3f}",
-                f""
             ])
             
-            # Feature importance (odds ratios)
-            result_lines.extend([
-                f"🎯 **Feature Importance (Top 5 Odds Ratios):**"
-            ])
+            # Add AUC only for binary classification (multiclass AUC is more complex)
+            if is_binary:
+                result_lines.extend([
+                    f"  • Training AUC = {roc_auc_score(y_train, y_train_proba_positive):.3f}",
+                    f"  • Test AUC = {roc_auc_score(y_test, y_test_proba_positive):.3f}",
+                ])
             
-            top_features = coefficients.head(5)
-            for _, row in top_features.iterrows():
-                odds_ratio = row['odds_ratio']
-                if odds_ratio > 1:
-                    effect = f"increases odds by {((odds_ratio - 1) * 100):.1f}%"
-                else:
-                    effect = f"decreases odds by {((1 - odds_ratio) * 100):.1f}%"
+            result_lines.append("")
+            
+            # Feature importance
+            if is_binary:
+                result_lines.extend([
+                    f"🎯 **Feature Importance (Top 5 Odds Ratios):**"
+                ])
                 
-                result_lines.append(f"  • **{row['feature']}**: Each unit increase {effect} (OR: {odds_ratio:.3f})")
+                top_features = coefficients.head(5)
+                for _, row in top_features.iterrows():
+                    odds_ratio = row['odds_ratio']
+                    if odds_ratio > 1:
+                        effect = f"increases odds by {((odds_ratio - 1) * 100):.1f}%"
+                    else:
+                        effect = f"decreases odds by {((1 - odds_ratio) * 100):.1f}%"
+                    
+                    result_lines.append(f"  • **{row['feature']}**: Each unit increase {effect} (OR: {odds_ratio:.3f})")
+            else:
+                result_lines.extend([
+                    f"🎯 **Feature Importance (Top 5 by Average Impact):**"
+                ])
+                
+                top_features = coefficients.head(5)
+                for _, row in top_features.iterrows():
+                    result_lines.append(f"  • **{row['feature']}**: Average coefficient magnitude: {row['avg_abs_coefficient']:.3f}")
+                    # Show coefficients for each class
+                    class_coefs = row['coefficients_by_class']
+                    for i, coef in enumerate(class_coefs):
+                        class_name = list(unique_values)[i] if is_multiclass else f"Class {i}"
+                        result_lines.append(f"    → {class_name}: {coef:.3f}")
             
             result_lines.extend([
                 f"",
@@ -535,41 +614,59 @@ class RunLogisticRegressionTool(BaseTool):
                 f""
             ])
             
-            # Show top 3 features with their exact odds ratios and coefficients
+            # Show top 3 features with their interpretation
             top_3_features = coefficients.head(3)
             for _, row in top_3_features.iterrows():
-                odds_ratio = row['odds_ratio']
-                if odds_ratio > 1:
-                    effect = f"increases odds by {((odds_ratio - 1) * 100):.1f}%"
+                if is_binary:
+                    odds_ratio = row['odds_ratio']
+                    if odds_ratio > 1:
+                        effect = f"increases odds by {((odds_ratio - 1) * 100):.1f}%"
+                    else:
+                        effect = f"decreases odds by {((1 - odds_ratio) * 100):.1f}%"
+                    
+                    result_lines.append(f"• **{row['feature']}**: Odds Ratio = {odds_ratio:.3f}, Coefficient = {row['coefficient']:.4f}")
+                    result_lines.append(f"  → 1 unit increase {effect}")
                 else:
-                    effect = f"decreases odds by {((1 - odds_ratio) * 100):.1f}%"
-                
-                result_lines.append(f"• **{row['feature']}**: Odds Ratio = {odds_ratio:.3f}, Coefficient = {row['coefficient']:.4f}")
-                result_lines.append(f"  → 1 unit increase {effect}")
+                    result_lines.append(f"• **{row['feature']}**: Average coefficient magnitude = {row['avg_abs_coefficient']:.3f}")
+                    result_lines.append(f"  → Higher values indicate stronger influence on classification decisions")
             
             # Provide model performance context for reliability assessment
-            train_auc = roc_auc_score(y_train, y_train_proba)
-            test_auc = roc_auc_score(y_test, y_test_proba)
+            if is_binary:
+                test_auc = roc_auc_score(y_test, y_test_proba_positive)
+                model_metric = f"AUC = {test_auc:.3f} (discrimination ability)"
+                reliability_threshold = test_auc
+                metric_name = "discrimination"
+            else:
+                test_accuracy = accuracy_score(y_test, y_test_pred)
+                model_metric = f"Accuracy = {test_accuracy:.3f} ({test_accuracy*100:.1f}%)"
+                reliability_threshold = test_accuracy
+                metric_name = "accuracy"
             
             result_lines.extend([
                 f"",
-                f"**Model Reliability:** AUC = {test_auc:.3f} (discrimination ability)",
-                f"**Use for decisions:** {'✅ Model shows excellent discrimination' if test_auc > 0.8 else '⚠️ Model has moderate discrimination - validate results' if test_auc > 0.6 else '❌ Model has poor discrimination - collect better data before making decisions'}",
+                f"**Model Reliability:** {model_metric}",
+                f"**Use for decisions:** {'✅ Model shows excellent ' + metric_name if reliability_threshold > 0.8 else '⚠️ Model has moderate ' + metric_name + ' - validate results' if reliability_threshold > 0.6 else '❌ Model has poor ' + metric_name + ' - collect better data before making decisions'}",
                 f"",
-                f"🎯 **Classification Equation:** Probability = 1 / (1 + e^(-({model.intercept_[0]:.4f}",
             ])
             
-            # Add coefficient equation
-            for _, row in coefficients.iterrows():
-                sign = "+" if row['coefficient'] >= 0 else ""
-                result_lines[-1] += f" {sign} {row['coefficient']:.4f} × {row['feature']}"
+            # Add model equation (simplified for multiclass)
+            if is_binary:
+                result_lines.append(f"🎯 **Classification Equation:** Probability = 1 / (1 + e^(-({model.intercept_[0]:.4f}")
+                for _, row in coefficients.iterrows():
+                    sign = "+" if row['coefficient'] >= 0 else ""
+                    result_lines[-1] += f" {sign} {row['coefficient']:.4f} × {row['feature']}"
+                result_lines[-1] += ")))"
+            else:
+                result_lines.append(f"🎯 **Classification:** Uses {effective_multi_class} strategy with {n_classes} classes")
+                result_lines.append(f"  → Softmax function converts linear combinations to class probabilities")
             
-            result_lines[-1] += ")))"
             
-            if missing_mask.sum() > 0:
-                result_lines.append(f"\n📝 **Data Notes:** Removed {missing_count} rows with missing values")
-                
-            result_lines.append(f"\n📊 **Next Steps:** Use evaluate_classification_model for comprehensive model assessment, then create ROC curves, precision-recall curves, and feature importance charts to visualize model performance.")
+            
+            # Different next steps for binary vs multiclass
+            if is_binary:
+                result_lines.append(f"\n📊 **Next Steps:** Use evaluate_classification_model for comprehensive model assessment, then create ROC curves, precision-recall curves, and feature importance charts.")
+            else:
+                result_lines.append(f"\n📊 **Next Steps:** Use evaluate_classification_model for comprehensive model assessment, then create confusion matrix and feature importance charts for multiclass analysis.")
                 
             return "\n".join(result_lines)
             
@@ -609,17 +706,26 @@ class RunARIMATool(BaseTool):
         super().__init__()
         self._df = df
 
+    def _get_current_df(self) -> pd.DataFrame:
+        """Get the most current dataframe, checking session state for updates"""
+        if hasattr(st, 'session_state') and 'df' in st.session_state:
+            return st.session_state.df
+        return self._df
+
     def _run(self, time_column: str, value_column: str, p: int = 1, d: int = 1, q: int = 1, forecast_periods: int = 12, start_date: str = "", end_date: str = "") -> str:
         try:
-            # Validate inputs
-            if time_column not in self._df.columns:
-                return f"❌ Time column '{time_column}' not found. Available columns: {list(self._df.columns)}"
+            # Get the most current dataframe
+            df = self._get_current_df()
             
-            if value_column not in self._df.columns:
-                return f"❌ Value column '{value_column}' not found. Available columns: {list(self._df.columns)}"
+            # Validate inputs
+            if time_column not in df.columns:
+                return f"❌ Time column '{time_column}' not found. Available columns: {list(df.columns)}"
+            
+            if value_column not in df.columns:
+                return f"❌ Value column '{value_column}' not found. Available columns: {list(df.columns)}"
                         
             # Prepare data
-            df_work = self._df[[time_column, value_column]].copy()
+            df_work = df[[time_column, value_column]].copy()
             df_work = df_work.dropna()
             
             if len(df_work) < 10:
