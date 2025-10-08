@@ -71,16 +71,26 @@ def generate_dataset_context(df: pd.DataFrame) -> str:
     # Column information with types and sample values
     column_info = []
     for col in df.columns:
-        dtype = str(df[col].dtype)
-        non_null_count = df[col].count()
-        
-        # Get sample values (non-null)
-        sample_values = df[col].dropna().unique()[:3]  # First 3 unique values
-        sample_str = ', '.join([str(v) for v in sample_values])
-        if len(df[col].dropna().unique()) > 3:
-            sample_str += '...'
-        
-        column_info.append(f"  • {col} ({dtype}): {non_null_count} non-null values, examples: {sample_str}")
+        try:
+            # Defensive programming: ensure we always get a Series
+            col_series = df[col]
+            if isinstance(col_series, pd.DataFrame):
+                # Edge case: if somehow we get a DataFrame, take the first column
+                col_series = col_series.iloc[:, 0]
+            
+            dtype = str(col_series.dtype)
+            non_null_count = col_series.count()
+            
+            # Get sample values (non-null)
+            sample_values = col_series.dropna().unique()[:3]  # First 3 unique values
+            sample_str = ', '.join([str(v) for v in sample_values])
+            if len(col_series.dropna().unique()) > 3:
+                sample_str += '...'
+            
+            column_info.append(f"  • {col} ({dtype}): {non_null_count} non-null values, examples: {sample_str}")
+        except Exception as e:
+            # Fallback for any other edge cases
+            column_info.append(f"  • {col} (unknown): Error reading column - {str(e)[:50]}...")
     
     # Identify numeric and categorical columns
     numeric_cols = df.select_dtypes(include=['number']).columns.tolist()
