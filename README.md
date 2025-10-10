@@ -1,8 +1,21 @@
 # 🧭 Stats Compass
 
-An experimental data analysis tool for product managers to explore datasets through natural language conversations. Upload CSV files and ask questions about your data.
+An AI-powered data analysis tool that lets you explore datasets through natural language conversations. Upload CSV files and ask questions about your data.
 
-> ⚠️ **Early MVP**: This is a prototype tool for experimentation and learning. Not recommended for production use.
+## 📦 **Stable Release vs Development**
+
+### ✅ **For Users: Use v1.0.0-mvp Release**
+- **[📥 Download Stable Release](https://github.com/oogunbiyi21/stats-compass/releases/tag/v1.0.0-mvp)**
+- Production-ready with 40+ analysis tools
+- Comprehensive testing and documentation
+- Stable API and reliable performance
+
+### 🔧 **For Developers: Main Branch**
+- Active development with LangGraph architecture migration
+- May contain experimental features and breaking changes
+- Use for contributing or following latest development
+
+> 💡 **Recommendation**: Use the tagged release for actual data analysis work
 
 ## 🎯 Problem Statement
 
@@ -34,7 +47,15 @@ This prototype lets you:
 
 ### Installation
 
-1. Clone the repository:
+#### Option 1: Stable Release (Recommended)
+```bash
+# Download and extract the v1.0.0-mvp release
+wget https://github.com/oogunbiyi21/stats-compass/archive/refs/tags/v1.0.0-mvp.zip
+unzip v1.0.0-mvp.zip
+cd stats-compass-1.0.0-mvp
+```
+
+#### Option 2: Development Version
 ```bash
 git clone https://github.com/oogunbiyi21/stats-compass.git
 cd stats-compass
