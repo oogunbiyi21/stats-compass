@@ -61,14 +61,6 @@ if not check_api_key():
 
 with st.sidebar:
 
-    # Diagnostics section (always visible)
-    st.markdown("**⚙️ Diagnostics**")
-    
-    # Environment detection
-    is_cloud = hasattr(st, "secrets") and "localhost" not in st.context.headers.get("host", "")
-    env_type = "☁️ Streamlit Cloud" if is_cloud else "💻 Local Dev"
-    st.caption(f"Environment: {env_type}")
-    
     # API Key Management Widget
     render_sidebar_api_key_widget()
 

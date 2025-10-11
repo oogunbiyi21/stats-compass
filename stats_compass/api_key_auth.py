@@ -27,7 +27,11 @@ def validate_api_key_format(api_key: str) -> bool:
 def check_api_key():
     """Returns `True` if the user has provided an API key or if environment variable is available."""
     
-    # First check for environment variable (development mode)
+    # Check if user already has API key set (don't overwrite existing keys!)
+    if st.session_state.get("api_key_set", False):
+        return True
+    
+    # Only set environment variable if no key is already set
     env_api_key = os.getenv("OPENAI_API_KEY")
     if env_api_key and validate_api_key_format(env_api_key):
         st.session_state["openai_api_key"] = env_api_key
@@ -54,10 +58,6 @@ def check_api_key():
             st.session_state["api_key_set"] = False
             st.session_state["api_key_error"] = error_message
 
-    # Check if user already has API key set
-    if st.session_state.get("api_key_set", False):
-        return True
-    
     # Show API key input page
     render_api_key_input_page(api_key_entered)
     return False
@@ -150,40 +150,58 @@ def render_sidebar_api_key_widget():
     st.markdown("---")
     st.markdown("### 🔑 API Key Settings")
     
-    # Show API key source
+    # Show API key source and current key
     source = st.session_state.get("api_key_source", "unknown")
+    current_key = st.session_state.get("openai_api_key", "")
+    
     if source == "environment":
         st.caption("🔧 Using environment variable")
     else:
-        # Show masked current key for user-provided keys
-        current_key = st.session_state.get("openai_api_key", "")
-        if current_key:
-            if len(current_key) > 12:
-                masked_key = current_key[:8] + "****" + current_key[-4:]
-            else:
-                masked_key = "****"
-            
-            st.caption(f"Current: `{masked_key}`")
+        st.caption("👤 Using user-provided key")
     
-    # Update key functionality (only for user-provided keys)
-    if source != "environment":
-        with st.expander("Update API Key"):
-            new_key = st.text_input(
-                "New API Key",
-                type="password",
-                placeholder="sk-proj-...",
-                key="sidebar_api_key_input"
-            )
-            
+    # Show masked current key
+    if current_key:
+        if len(current_key) > 12:
+            masked_key = current_key[:8] + "****" + current_key[-4:]
+        else:
+            masked_key = "****"
+        st.caption(f"Current: `{masked_key}`")
+    
+    # Update key functionality (always available)
+    with st.expander("Override API Key"):
+        if source == "environment":
+            st.caption("💡 This will override your environment variable for this session")
+        
+        new_key = st.text_input(
+            "New API Key",
+            type="password",
+            placeholder="sk-proj-...",
+            key="sidebar_api_key_input"
+        )
+        
+        col1, col2 = st.columns(2)
+        with col1:
             if st.button("Update Key", key="update_api_key_btn"):
                 if new_key and validate_api_key_format(new_key):
                     st.session_state["openai_api_key"] = new_key
                     st.session_state["api_key_set"] = True
                     st.session_state["api_key_source"] = "user_input"
                     st.success("✅ API Key updated!")
-                    st.rerun()
                 else:
-                    st.error("❌ Please enter a valid API key")
+                    # Use better validation with detailed error messages
+                    is_valid, error_message = validate_and_suggest_fixes(new_key)
+                    st.error(f"❌ {error_message}")
+        
+        with col2:
+            # Show reset option if currently using user input but env var is available
+            import os
+            env_key = os.getenv("OPENAI_API_KEY")
+            if env_key and source == "user_input":
+                if st.button("Reset to Env", key="reset_to_env_btn"):
+                    st.session_state["openai_api_key"] = env_key
+                    st.session_state["api_key_set"] = True
+                    st.session_state["api_key_source"] = "environment"
+                    st.success("✅ Reset to environment variable!")
     
     # Help links
     st.markdown("📚 [Get API Key](https://platform.openai.com/api-keys)")
