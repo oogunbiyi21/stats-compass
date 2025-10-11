@@ -58,24 +58,28 @@ with st.sidebar:
     
     st.divider()
 
-    # Check for usage warnings
-    total_tokens, total_cost, usage_display = get_usage_summary()
-    st.markdown(f"**{usage_display}**")
-    usage_warning = check_usage_limits(total_tokens, total_cost)
-    if usage_warning:
-        st.warning(usage_warning)
-    
-    # Show detailed breakdown if there's usage
-    if total_tokens > 0:
-        st.markdown("**📊 Usage Details**")
-        usage_history = st.session_state.get("usage_history", [])
-        if usage_history:
-            st.caption(f"Total interactions: {len(usage_history)}")
-            
-            # Show last few interactions
-            recent = usage_history[-3:] if len(usage_history) > 3 else usage_history
-            for i, usage in enumerate(recent, 1):
-                st.caption(f"Query {len(usage_history) - len(recent) + i}: {usage['total_tokens']} tokens (${usage['cost']:.4f})")
+    # Token Usage Information (in expandable section)
+    with st.expander("💰 Token Usage", expanded=False):
+        # Check for usage warnings
+        total_tokens, total_cost, usage_display = get_usage_summary()
+        st.markdown(f"**{usage_display}**")
+        usage_warning = check_usage_limits(total_tokens, total_cost)
+        if usage_warning:
+            st.warning(usage_warning)
+        
+        # Show detailed breakdown if there's usage
+        if total_tokens > 0:
+            st.markdown("**📊 Usage Details**")
+            usage_history = st.session_state.get("usage_history", [])
+            if usage_history:
+                st.caption(f"Total interactions: {len(usage_history)}")
+                
+                # Show last few interactions
+                recent = usage_history[-3:] if len(usage_history) > 3 else usage_history
+                for i, usage in enumerate(recent, 1):
+                    st.caption(f"Query {len(usage_history) - len(recent) + i}: {usage['total_tokens']} tokens (${usage['cost']:.4f})")
+        else:
+            st.info("💡 No usage yet. Start a conversation to see token costs.")
 
     
 
