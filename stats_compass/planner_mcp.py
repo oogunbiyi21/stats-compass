@@ -118,14 +118,19 @@ DATASET CONTEXT:
 
 
 
-def run_mcp_planner(user_query: str, df: pd.DataFrame, chat_history: List[Dict] = None) -> Dict[str, Any]:
+def run_mcp_planner(user_query: str, df: pd.DataFrame, chat_history: List[Dict] = None, api_key: str = None) -> Dict[str, Any]:
     """
     Tool-calling agent wired to your RunPandasQueryTool.
     Now includes chat history for context preservation and automatic dataset context.
+    Uses user-provided API key for OpenAI calls.
     Returns the AgentExecutor invoke() output (dict with 'output' and possibly intermediate steps).
     """
     if chat_history is None:
         chat_history = []
+
+    # Validate API key
+    if not api_key:
+        raise ValueError("OpenAI API key is required")
 
     # Generate dataset context automatically
     dataset_context = generate_dataset_context(df)
@@ -213,8 +218,8 @@ def run_mcp_planner(user_query: str, df: pd.DataFrame, chat_history: List[Dict] 
         roc_curve_tool, precision_recall_curve_tool, arima_plot_tool, arima_forecast_plot_tool
     ]
 
-    # 2) LLM (swap to Claude/Gemini later by changing the Chat* class)
-    llm = ChatOpenAI(model="gpt-4o", temperature=0)
+    # 2) LLM with user-provided API key
+    llm = ChatOpenAI(model="gpt-4o", temperature=0, api_key=api_key)
 
     # 3) Enhanced prompt with dataset context and chat history
     prompt = ChatPromptTemplate.from_messages([
