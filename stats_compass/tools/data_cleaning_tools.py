@@ -10,7 +10,7 @@ import json
 from pydantic import BaseModel, Field, PrivateAttr
 from langchain.tools.base import BaseTool
 import streamlit as st
-from stats_compass.utils.data_cleaning import (
+from utils.data_cleaning import (
     analyze_missing_data,
     detect_outliers,
     find_duplicates,
