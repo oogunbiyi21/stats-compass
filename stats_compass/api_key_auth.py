@@ -130,7 +130,7 @@ def render_sidebar_api_key_widget():
     if not st.session_state.get("api_key_set", False):
         return
     
-    st.markdown("---")
+    # st.markdown("---")
     st.markdown("### 🔑 API Key Settings")
     
     # Show masked current key
