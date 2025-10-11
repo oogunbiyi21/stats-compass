@@ -49,6 +49,16 @@ except ImportError:
     # If auth.py doesn't exist, continue without authentication
     pass
 
+# Add API key authentication check (with environment variable fallback for development)
+from api_key_auth import (
+    check_api_key, 
+    render_sidebar_api_key_widget, 
+    get_user_api_key, 
+    handle_openai_error
+)
+if not check_api_key():
+    st.stop()
+
 with st.sidebar:
 
     # Diagnostics section (always visible)
@@ -59,14 +69,8 @@ with st.sidebar:
     env_type = "☁️ Streamlit Cloud" if is_cloud else "💻 Local Dev"
     st.caption(f"Environment: {env_type}")
     
-    # API Key status
-    api_key_set = bool(os.getenv("OPENAI_API_KEY"))
-    st.write("OPENAI_API_KEY set:", api_key_set)
-    if not api_key_set:
-        if is_cloud:
-            st.warning("⚠️ Add OPENAI_API_KEY to Streamlit Cloud secrets")
-        else:
-            st.caption("Tip: create a `.env` with OPENAI_API_KEY=sk-...")
+    # API Key Management Widget
+    render_sidebar_api_key_widget()
 
     st.divider()
 
@@ -381,7 +385,8 @@ with tab1:
                     result = run_mcp_planner(
                         queued, 
                         df_use, 
-                        chat_history=st.session_state.chat_history[:-1]  # Exclude the current user message
+                        chat_history=st.session_state.chat_history[:-1],  # Exclude the current user message
+                        api_key=get_user_api_key()  # Pass user's API key
                     )
                     final_text = result.get("output", "(No output)")
                 except Exception as e:
