@@ -26,13 +26,15 @@ def validate_api_key_format(api_key: str) -> bool:
 def check_api_key():
     """Returns `True` if the user has provided an API key."""
     
+    # Check if user already has API key set
+    if st.session_state.get("api_key_set", False):
+        return True
+    
     def api_key_entered():
         """Handles API key submission."""
         api_key = st.session_state.get("api_key_input", "").strip()
         
-        is_valid, error_message = validate_and_suggest_fixes(api_key)
-        
-        if is_valid:
+        if validate_api_key_format(api_key):
             st.session_state["openai_api_key"] = api_key
             st.session_state["api_key_set"] = True
             # Clear the input field
@@ -42,12 +44,8 @@ def check_api_key():
             st.rerun()
         else:
             st.session_state["api_key_set"] = False
-            st.session_state["api_key_error"] = error_message
+            st.error("Please enter a valid OpenAI API key (starts with 'sk-')")
 
-    # Check if user already has API key set
-    if st.session_state.get("api_key_set", False):
-        return True
-    
     # Show API key input page
     render_api_key_input_page(api_key_entered)
     return False
@@ -142,7 +140,6 @@ def render_sidebar_api_key_widget():
             masked_key = current_key[:8] + "****" + current_key[-4:]
         else:
             masked_key = "****"
-        
         st.caption(f"Current: `{masked_key}`")
     
     # Update key functionality
@@ -151,7 +148,7 @@ def render_sidebar_api_key_widget():
             "New API Key",
             type="password",
             placeholder="sk-proj-...",
-            key="sidebar_api_key_input"
+            key="sidebar_api_key_update_input"  # Fixed duplicate key
         )
         
         if st.button("Update Key", key="update_api_key_btn"):
@@ -159,9 +156,8 @@ def render_sidebar_api_key_widget():
                 st.session_state["openai_api_key"] = new_key
                 st.session_state["api_key_set"] = True
                 st.success("✅ API Key updated!")
-                st.rerun()
             else:
-                st.error("❌ Please enter a valid API key")
+                st.error("❌ Please enter a valid OpenAI API key (starts with 'sk-')")
     
     # Help links
     st.markdown("📚 [Get API Key](https://platform.openai.com/api-keys)")
@@ -172,50 +168,12 @@ def get_user_api_key():
     return st.session_state.get("openai_api_key", "")
 
 
-def handle_openai_error(error):
-    """Handle OpenAI API errors with helpful user feedback"""
-    error_str = str(error).lower()
-    
-    if "invalid api key" in error_str or "incorrect api key" in error_str:
-        st.error("🔑 **Invalid API Key**")
-        st.markdown("""
-        Your OpenAI API key appears to be invalid. Please check:
-        - Copy the full key including 'sk-proj-' or 'sk-' prefix
-        - Make sure there are no extra spaces
-        - Verify the key is active in your OpenAI dashboard
-        """)
-        with st.expander("🔧 Update your API key"):
-            render_sidebar_api_key_widget()
-        return False
-        
-    elif "quota exceeded" in error_str or "billing" in error_str:
-        st.error("💳 **API Quota Exceeded**")
-        st.markdown("""
-        Your OpenAI account has exceeded its usage quota:
-        - Check your billing at [OpenAI Dashboard](https://platform.openai.com/usage)
-        - Add a payment method or increase limits
-        - Wait for quota reset if on free tier
-        """)
-        return False
-        
-    elif "rate limit" in error_str:
-        st.warning("⏳ **Rate Limited**")
-        st.markdown("""
-        You're sending requests too quickly. Please:
-        - Wait a moment before trying again
-        - Consider upgrading your OpenAI plan for higher limits
-        """)
-        return False
-        
-    else:
-        st.error(f"🚨 **API Error**: {str(error)}")
-        st.markdown("Try refreshing the page or updating your API key in the sidebar.")
-        return False
+
 
 
 def clear_api_key():
     """Clears the stored API key (for logout functionality)."""
-    keys_to_clear = ["openai_api_key", "api_key_set", "api_key_error"]
+    keys_to_clear = ["openai_api_key", "api_key_set"]
     for key in keys_to_clear:
         if key in st.session_state:
             del st.session_state[key]

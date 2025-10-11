@@ -46,8 +46,7 @@ st.set_page_config(page_title="Stats Compass", layout="wide")
 from api_key_auth import (
     check_api_key, 
     render_sidebar_api_key_widget, 
-    get_user_api_key, 
-    handle_openai_error
+    get_user_api_key
 )
 if not check_api_key():
     st.stop()
@@ -375,9 +374,7 @@ with tab1:
                     )
                     final_text = result.get("output", "(No output)")
                 except Exception as e:
-                    # Use centralized error handling from api_key_auth module
-                    handle_openai_error(e)
-                    final_text = "❌ Please check the error message above and try again."
+                    final_text = f"❌ Agent error: {e}"
                     result = {}
 
             # Display the actual response

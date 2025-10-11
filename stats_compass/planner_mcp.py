@@ -218,7 +218,7 @@ def run_mcp_planner(user_query: str, df: pd.DataFrame, chat_history: List[Dict] 
         roc_curve_tool, precision_recall_curve_tool, arima_plot_tool, arima_forecast_plot_tool
     ]
 
-    # 2) LLM with user-provided API key
+    # 2) LLM (with user-provided API key)
     llm = ChatOpenAI(model="gpt-4o", temperature=0, api_key=api_key)
 
     # 3) Enhanced prompt with dataset context and chat history
