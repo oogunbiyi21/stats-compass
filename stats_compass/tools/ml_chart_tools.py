@@ -783,14 +783,27 @@ class CreateARIMAForecastPlotTool(BaseTool):
                 upper_ci = forecast_values + 1.96 * forecast_std
                 has_ci = False
             
-            # Create proper pandas DatetimeIndex for forecast
+            # Use the pre-computed dates and frequency from ARIMA analysis for consistency
             if hasattr(time_series, 'index') and hasattr(time_series.index[0], 'to_pydatetime'):
                 # Time series has proper datetime index
                 last_date = time_series.index[-1]
-                # Create forecast dates as pandas DatetimeIndex (not numpy array)
-                forecast_dates = pd.date_range(start=last_date + pd.Timedelta(days=1), periods=forecast_steps, freq='D')
+                last_value = time_series.iloc[-1]
+                
+                # Use stored forecast dates from ARIMA analysis (take only the requested steps)
+                stored_forecast_dates = arima_result.get('forecast_dates', [])
+                if len(stored_forecast_dates) > 0 and forecast_steps <= len(stored_forecast_dates):
+                    # Use pre-computed dates from ARIMA analysis
+                    forecast_dates = pd.to_datetime(stored_forecast_dates[:forecast_steps])
+                else:
+                    # Fallback to using stored frequency if dates not sufficient
+                    freq = arima_result.get('inferred_freq', pd.Timedelta(days=1))
+                    if isinstance(freq, str):
+                        forecast_dates = pd.date_range(start=last_date, periods=forecast_steps + 1, freq=freq)[1:]
+                    else:
+                        forecast_dates = pd.date_range(start=last_date + freq, periods=forecast_steps, freq=freq)
             else:
                 # Fallback: create simple numeric range if no datetime index
+                last_value = time_series[-1] if hasattr(time_series, '__getitem__') else time_series.iloc[-1]
                 forecast_dates = list(range(len(time_series), len(time_series) + forecast_steps))
             
             # Simple historical data logic: show same number of days as forecast
@@ -809,17 +822,28 @@ class CreateARIMAForecastPlotTool(BaseTool):
                 hovertemplate='<b>Date</b>: %{x}<br><b>Value</b>: %{y:.4f}<extra></extra>'
             ))
             
-            # Add forecast
+            # Create continuous forecast by including the last historical point
+            # This ensures the forecast line connects seamlessly to the historical data
+            if hasattr(time_series, 'index'):
+                # For datetime index, create continuous x-axis
+                forecast_x = [time_series.index[-1]] + list(forecast_dates)
+                forecast_y = [last_value] + list(forecast_values)
+            else:
+                # For numeric index, create continuous range
+                forecast_x = [len(time_series) - 1] + list(forecast_dates)
+                forecast_y = [last_value] + list(forecast_values)
+            
+            # Add forecast with connection point
             fig.add_trace(go.Scatter(
-                x=forecast_dates,
-                y=forecast_values,
+                x=forecast_x,
+                y=forecast_y,
                 mode='lines',
                 name=f'Forecast (ARIMA({p},{d},{q}))',
                 line=dict(color='red', width=2, dash='dash'),
                 hovertemplate='<b>Date</b>: %{x}<br><b>Forecast</b>: %{y:.4f}<extra></extra>'
             ))
             
-            # Add confidence intervals
+            # Add confidence intervals (only for actual forecast, not the connection point)
             confidence_pct = int(confidence_level * 100)
             fig.add_trace(go.Scatter(
                 x=list(forecast_dates) + list(reversed(forecast_dates)),
@@ -896,12 +920,12 @@ class CreateARIMAForecastPlotTool(BaseTool):
 
 📈 Created ARIMA forecast plot with {forecast_steps} future predictions.
 
-� Balanced View:
+📊 Balanced View:
   • Historical data shown: {historical_points_shown} days (matches forecast period)
   • Chart balance: 50/50 recent history vs future forecast
   • Date range: {start_date_str} to {end_date_str}
 
-�🔮 Forecast Summary:
+🔮 Forecast Summary:
   • Forecast steps: {forecast_steps}
   • Confidence level: {confidence_pct}%
   • Mean forecast: {forecast_mean:.4f}
@@ -910,8 +934,10 @@ class CreateARIMAForecastPlotTool(BaseTool):
 
 💡 Interpretation:
   • Blue line: Recent historical data (same period as forecast)
-  • Red dashed line: Future predictions
+  • Red dashed line: Future predictions (continuous connection to historical data)
   • Shaded area: {confidence_pct}% confidence interval
+  • ✅ Plot continuity: Forecast line connects seamlessly to last historical point
+  • ✅ Time consistency: Uses same frequency as ARIMA analysis for perfect alignment
   • Balanced view optimal for trend comparison"""
 
             return summary
