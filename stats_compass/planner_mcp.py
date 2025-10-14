@@ -7,7 +7,7 @@ from langchain_openai import ChatOpenAI
 from langchain.agents import create_tool_calling_agent, AgentExecutor
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
-from stats_compass.tools.exploration_tools import (
+from tools.exploration_tools import (
     RunPandasQueryTool,
     GroupByAggregateTool,
     TopCategoriesTool,
@@ -16,7 +16,7 @@ from stats_compass.tools.exploration_tools import (
     DatasetPreviewTool,
     CreateHistogramChartTool,
 )
-from stats_compass.tools.chart_tools import (
+from tools.chart_tools import (
     CreateBarChartTool,
     CreateScatterPlotTool,
     CreateLineChartTool,
@@ -27,14 +27,14 @@ from stats_compass.tools.chart_tools import (
     CreateResidualPlotTool,
     CreateCoefficientChartTool
 )
-from stats_compass.tools.ml_chart_tools import (
+from tools.ml_chart_tools import (
     CreateFeatureImportanceChartTool,
     CreateROCCurveTool,
     CreatePrecisionRecallCurveTool,
     CreateARIMAPlotTool,
     CreateARIMAForecastPlotTool
 )
-from stats_compass.tools.data_cleaning_tools import (
+from tools.data_cleaning_tools import (
     AnalyzeMissingDataTool,
     DetectOutliersTool,
     FindDuplicatesTool,
@@ -43,21 +43,21 @@ from stats_compass.tools.data_cleaning_tools import (
     SuggestImputationStrategiesTool,
     ApplyImputationTool
 )
-from stats_compass.tools.statistical_test_tools import (
+from tools.statistical_test_tools import (
     RunTTestTool,
     RunZTestTool,
     RunChiSquareTestTool
 )
-from stats_compass.tools.ml_regression_tools import (
+from tools.ml_regression_tools import (
     RunLinearRegressionTool,
     RunLogisticRegressionTool,
     RunARIMATool
 )
-from stats_compass.tools.ml_evaluation_tools import (
+from tools.ml_evaluation_tools import (
     EvaluateRegressionModelTool,
     EvaluateClassificationModelTool
 )
-from stats_compass.tools.ml_util_tools import (
+from tools.ml_util_tools import (
     MeanTargetEncodingTool,
     BinRareCategoriesTool
 )

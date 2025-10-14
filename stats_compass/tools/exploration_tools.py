@@ -90,7 +90,7 @@ class RunPandasQueryToolInput(BaseModel):
 class RunPandasQueryTool(BaseTool):
     name: str = "run_pandas_query"
     description: str = "Run safe Python expressions on dataframe `df`. Allows: df['col'].unique(), df.columns, df['col'] = df['col'].replace('old','new'), variable assignments. Blocks: df=new_df, imports, file operations."
-    args_schema = RunPandasQueryToolInput
+    args_schema: Type[BaseModel] = RunPandasQueryToolInput
 
     _df: pd.DataFrame = PrivateAttr()
     _user_vars: dict = PrivateAttr(default_factory=dict)
