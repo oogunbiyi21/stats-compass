@@ -58,7 +58,7 @@ def render_api_key_input_page(callback_func):
     st.markdown("### 🔑 Enter Your OpenAI API Key to Get Started")
     
     # Explanation section
-    with st.expander("ℹ️ Why do I need an API key?", expanded=True):
+    with st.expander("ℹ️ Why do I need an API key?", expanded=False):
         st.markdown("""
         **Stats Compass uses OpenAI's GPT-4 for intelligent data analysis:**
         
