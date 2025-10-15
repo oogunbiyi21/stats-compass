@@ -1097,6 +1097,32 @@ def export_chart_as_image(chart_info: Dict[str, Any], format: str = "png") -> by
                 paper_bgcolor='white',
                 font=dict(color='black', size=12)
             )
+        elif chart_type == 'arima_plot':
+            # Use the stored plotly figure directly
+            fig = chart_info.get('figure')
+            if not fig:
+                raise ValueError("No ARIMA plot figure available")
+            
+            # Apply export-friendly template
+            fig.update_layout(
+                template='plotly_white',
+                plot_bgcolor='white',
+                paper_bgcolor='white',
+                font=dict(color='black', size=12)
+            )
+        elif chart_type == 'arima_forecast_plot':
+            # Use the stored plotly figure directly
+            fig = chart_info.get('figure')
+            if not fig:
+                raise ValueError("No ARIMA forecast plot figure available")
+            
+            # Apply export-friendly template
+            fig.update_layout(
+                template='plotly_white',
+                plot_bgcolor='white',
+                paper_bgcolor='white',
+                font=dict(color='black', size=12)
+            )
         else:
             raise ValueError(f"Unsupported chart type: {chart_type}")
         

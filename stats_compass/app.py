@@ -31,8 +31,10 @@ from utils.export_utils import (
     create_narrative_summary
 )
 from utils.agent_transcript import (
+    AgentTranscriptLogger,
     AgentTranscriptDisplay,
     AgentTranscriptExporter,
+    store_session_transcripts,
     render_transcript_history
 )
 from planner_mcp import run_mcp_planner
@@ -403,6 +405,17 @@ with tab1:
         # Store intermediate steps for replay in chat history
         if isinstance(result, dict) and result.get("intermediate_steps"):
             assistant_message["intermediate_steps"] = result["intermediate_steps"]
+            
+            # Create and store agent transcript for Agent Logs tab
+            # First format the raw intermediate steps into dictionaries
+            formatted_steps = AgentTranscriptLogger.format_intermediate_steps(result["intermediate_steps"])
+            # Then create the transcript summary
+            transcript = AgentTranscriptLogger.create_transcript_summary(
+                formatted_steps,
+                final_text
+            )
+            store_session_transcripts(transcript)
+            
         st.session_state.chat_history.append(assistant_message)
         
         # Track token usage and cost for this interaction
