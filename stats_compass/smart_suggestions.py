@@ -336,11 +336,52 @@ def generate_smart_suggestions(df: pd.DataFrame) -> List[Dict[str, Any]]:
     if stat_suggestions:
         suggestions.extend(stat_suggestions[:1])  # Add the highest priority statistical test
     
-    # Sort suggestions by priority (higher first) and limit to top suggestions
+    # Sort suggestions by priority (higher first)
     suggestions.sort(key=lambda x: x['priority'], reverse=True)
     
-    # Return top 6 suggestions to avoid overwhelming the user
-    return suggestions[:6]
+    # Reorganize to ensure top 3 slots are: ML, Time Series ML, Statistical Test
+    prioritized = []
+    remaining = []
+    
+    # Find best from each priority category
+    best_ml = None
+    best_ts_ml = None
+    best_stats = None
+    
+    for suggestion in suggestions:
+        # Check if it's a time series ML (ARIMA)
+        if suggestion['category'] == 'ml' and 'ARIMA' in suggestion['title']:
+            if best_ts_ml is None:
+                best_ts_ml = suggestion
+            else:
+                remaining.append(suggestion)
+        # Check if it's a regular ML suggestion
+        elif suggestion['category'] == 'ml':
+            if best_ml is None:
+                best_ml = suggestion
+            else:
+                remaining.append(suggestion)
+        # Check if it's a statistical test
+        elif suggestion['category'] == 'stats':
+            if best_stats is None:
+                best_stats = suggestion
+            else:
+                remaining.append(suggestion)
+        else:
+            remaining.append(suggestion)
+    
+    # Build prioritized list: ML, Time Series ML, Stats Test, then rest
+    if best_ml:
+        prioritized.append(best_ml)
+    if best_ts_ml:
+        prioritized.append(best_ts_ml)
+    if best_stats:
+        prioritized.append(best_stats)
+    
+    # Add remaining suggestions
+    prioritized.extend(remaining)
+    
+    return prioritized
 
 
 def get_category_emoji(category: str) -> str:

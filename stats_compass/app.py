@@ -273,39 +273,18 @@ with tab1:
                         st.session_state.to_process = suggestions[2]['query']
                         st.rerun()
             
-            # Second row
+            # Additional suggestions in expander
             if len(suggestions) > 3:
-                with col1:
-                    if st.button(
-                        suggestions[3]['title'], 
-                        key="grid_suggest_3",
-                        help=suggestions[3]['description'],
-                        use_container_width=True
-                    ):
-                        st.session_state.to_process = suggestions[3]['query']
-                        st.rerun()
-            
-            if len(suggestions) > 4:
-                with col2:
-                    if st.button(
-                        suggestions[4]['title'], 
-                        key="grid_suggest_4",
-                        help=suggestions[4]['description'],
-                        use_container_width=True
-                    ):
-                        st.session_state.to_process = suggestions[4]['query']
-                        st.rerun()
-            
-            if len(suggestions) > 5:
-                with col3:
-                    if st.button(
-                        suggestions[5]['title'], 
-                        key="grid_suggest_5",
-                        help=suggestions[5]['description'],
-                        use_container_width=True
-                    ):
-                        st.session_state.to_process = suggestions[5]['query']
-                        st.rerun()
+                with st.expander(f"💡 More suggestions ({len(suggestions) - 3})", expanded=False):
+                    for idx, suggestion in enumerate(suggestions[3:], start=3):
+                        if st.button(
+                            suggestion['title'], 
+                            key=f"grid_suggest_{idx}",
+                            help=suggestion['description'],
+                            use_container_width=True
+                        ):
+                            st.session_state.to_process = suggestion['query']
+                            st.rerun()
             
             st.divider()
 
