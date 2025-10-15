@@ -411,6 +411,16 @@ with tab1:
         # Store intermediate steps for replay in chat history
         if isinstance(result, dict) and result.get("intermediate_steps"):
             assistant_message["intermediate_steps"] = result["intermediate_steps"]
+            
+            # Create and store agent transcript for Agent Logs tab
+            try:
+                formatted_steps = AgentTranscriptLogger.format_intermediate_steps(result["intermediate_steps"])
+                transcript_summary = AgentTranscriptLogger.create_transcript_summary(formatted_steps, final_text)
+                store_session_transcripts(transcript_summary)
+            except Exception as e:
+                # Silently fail - don't break the chat if transcript creation fails
+                pass
+                
         st.session_state.chat_history.append(assistant_message)
         
         # Track token usage and cost for this interaction
