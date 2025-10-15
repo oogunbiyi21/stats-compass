@@ -136,13 +136,17 @@ def find_duplicates(df: pd.DataFrame, subset_cols: Optional[list] = None) -> Dic
     # Column-wise duplicate analysis
     duplicate_info['column_analysis'] = {}
     for col in df.columns:
-        col_duplicates = df[col].duplicated()
-        unique_vals = df[col].nunique()
-        duplicate_info['column_analysis'][col] = {
-            'unique_values': unique_vals,
-            'duplicate_count': col_duplicates.sum(),
-            'uniqueness_ratio': round(unique_vals / len(df), 3)
-        }
+        try:
+            col_duplicates = df[col].duplicated()
+            unique_vals = df[col].nunique()
+            duplicate_info['column_analysis'][col] = {
+                'unique_values': unique_vals,
+                'duplicate_count': col_duplicates.sum(),
+                'uniqueness_ratio': round(unique_vals / len(df), 3)
+            }
+        except (KeyError, TypeError, ValueError):
+            # Skip columns that can't be accessed or cause errors
+            continue
     
     # Identify potential key columns (high uniqueness)
     high_uniqueness_cols = [col for col, info in duplicate_info['column_analysis'].items() 

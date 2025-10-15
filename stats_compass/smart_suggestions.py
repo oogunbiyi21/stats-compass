@@ -10,43 +10,47 @@ def detect_date_columns(df: pd.DataFrame) -> List[str]:
     date_columns = []
     
     for col in df.columns:
-        # Check if column is already datetime
-        if pd.api.types.is_datetime64_any_dtype(df[col]):
-            date_columns.append(col)
-            continue
-            
-        # Try to parse as datetime for object columns
-        if df[col].dtype == 'object':
-            try:
-                # Sample a few non-null values
-                sample_values = df[col].dropna().head(5).astype(str)
-                if len(sample_values) > 0:
-                    # Check if values look like dates (basic patterns)
-                    sample_str = sample_values.iloc[0] if len(sample_values) > 0 else ""
-                    
-                    # Skip if it looks like regular text (more than 50 chars or contains many letters)
-                    if len(sample_str) > 50 or sum(c.isalpha() for c in sample_str) > len(sample_str) * 0.7:
-                        continue
+        try:
+            # Check if column is already datetime
+            if pd.api.types.is_datetime64_any_dtype(df[col]):
+                date_columns.append(col)
+                continue
+                
+            # Try to parse as datetime for object columns
+            if df[col].dtype == 'object':
+                try:
+                    # Sample a few non-null values
+                    sample_values = df[col].dropna().head(5).astype(str)
+                    if len(sample_values) > 0:
+                        # Check if values look like dates (basic patterns)
+                        sample_str = sample_values.iloc[0] if len(sample_values) > 0 else ""
                         
-                    # Try to parse with common date formats first
-                    import warnings
-                    with warnings.catch_warnings():
-                        warnings.filterwarnings("ignore")
-                        # Try common formats first
-                        try:
-                            pd.to_datetime(sample_values, format='%Y-%m-%d', errors='raise')
-                        except:
+                        # Skip if it looks like regular text (more than 50 chars or contains many letters)
+                        if len(sample_str) > 50 or sum(c.isalpha() for c in sample_str) > len(sample_str) * 0.7:
+                            continue
+                            
+                        # Try to parse with common date formats first
+                        import warnings
+                        with warnings.catch_warnings():
+                            warnings.filterwarnings("ignore")
+                            # Try common formats first
                             try:
-                                pd.to_datetime(sample_values, format='%m/%d/%Y', errors='raise')
+                                pd.to_datetime(sample_values, format='%Y-%m-%d', errors='raise')
                             except:
                                 try:
-                                    pd.to_datetime(sample_values, format='%d/%m/%Y', errors='raise') 
+                                    pd.to_datetime(sample_values, format='%m/%d/%Y', errors='raise')
                                 except:
-                                    # Fall back to automatic parsing
-                                    pd.to_datetime(sample_values, errors='raise')
-                    date_columns.append(col)
-            except:
-                continue
+                                    try:
+                                        pd.to_datetime(sample_values, format='%d/%m/%Y', errors='raise') 
+                                    except:
+                                        # Fall back to automatic parsing
+                                        pd.to_datetime(sample_values, errors='raise')
+                        date_columns.append(col)
+                except:
+                    continue
+        except (KeyError, TypeError, ValueError):
+            # Skip columns that can't be accessed or cause errors
+            continue
     
     return date_columns
 
@@ -56,17 +60,21 @@ def detect_id_columns(df: pd.DataFrame) -> List[str]:
     id_columns = []
     
     for col in df.columns:
-        # Check if column name suggests it's an ID
-        col_lower = col.lower()
-        if any(id_term in col_lower for id_term in ['id', 'key', 'index', 'pk']):
-            id_columns.append(col)
-            continue
-        
-        # Check cardinality - if unique values > 50% of total rows, likely an ID
-        if len(df) > 0:
-            unique_ratio = df[col].nunique() / len(df)
-            if unique_ratio > 0.5 and df[col].nunique() > 10:
+        try:
+            # Check if column name suggests it's an ID
+            col_lower = col.lower()
+            if any(id_term in col_lower for id_term in ['id', 'key', 'index', 'pk']):
                 id_columns.append(col)
+                continue
+            
+            # Check cardinality - if unique values > 50% of total rows, likely an ID
+            if len(df) > 0:
+                unique_ratio = df[col].nunique() / len(df)
+                if unique_ratio > 0.5 and df[col].nunique() > 10:
+                    id_columns.append(col)
+        except (KeyError, TypeError, ValueError):
+            # Skip columns that can't be accessed or cause errors
+            continue
     
     return id_columns
 

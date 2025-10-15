@@ -198,6 +198,8 @@ class AgentTranscriptDisplay:
             "run_linear_regression": "Predictive modeling",
             "run_logistic_regression": "Classification modeling",
             "run_arima_analysis": "Time series forecasting",
+            "create_arima_plot": "ARIMA model fit visualization",
+            "create_arima_forecast_plot": "ARIMA forecast visualization",
             "mean_target_encoding": "Feature engineering",
             "evaluate_regression_model": "Model evaluation",
             "evaluate_classification_model": "Model evaluation",

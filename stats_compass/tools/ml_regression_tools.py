@@ -680,7 +680,9 @@ class ARIMAInput(BaseModel):
     p: int = Field(default=1, description="Autoregressive (AR) order - number of lag observations")
     d: int = Field(default=1, description="Differencing order - degree of differencing")
     q: int = Field(default=1, description="Moving average (MA) order - size of moving average window")
-    forecast_periods: int = Field(default=12, description="Number of periods to forecast into the future")
+    forecast_periods: int = Field(default=12, description="Number of periods to forecast into the future (used if forecast_number and forecast_unit not specified)")
+    forecast_number: Optional[int] = Field(default=None, description="Number of time units to forecast (e.g., 30 for '30 days', 6 for '6 months')")
+    forecast_unit: Optional[str] = Field(default=None, description="Time unit for forecast: 'days', 'weeks', 'months', 'quarters', or 'years'")
     start_date: str = Field(default="", description="Start date for time slice (YYYY-MM-DD format, empty for full dataset)")
     end_date: str = Field(default="", description="End date for time slice (YYYY-MM-DD format, empty for full dataset)")
 
@@ -697,7 +699,7 @@ class RunARIMATool(BaseTool):
     """
     
     name: str = "run_arima_analysis"
-    description: str = "Fit ARIMA time series model for forecasting and trend analysis with simple parameterization"
+    description: str = "Fit ARIMA time series model for forecasting and trend analysis. Supports structured time period inputs (forecast_number + forecast_unit like 30 days, 6 months, 2 years) with automatic step calculation based on pandas-detected data frequency."
     args_schema: Type[BaseModel] = ARIMAInput
 
     _df: pd.DataFrame = PrivateAttr()
@@ -712,7 +714,72 @@ class RunARIMATool(BaseTool):
             return st.session_state.df
         return self._df
 
-    def _run(self, time_column: str, value_column: str, p: int = 1, d: int = 1, q: int = 1, forecast_periods: int = 12, start_date: str = "", end_date: str = "") -> str:
+    def _parse_forecast_period(self, df_work: pd.DataFrame, time_column: str, forecast_number: int, forecast_unit: str) -> int:
+        """
+        Convert forecast request (e.g., 30 days, 6 months) into appropriate number of forecast steps
+        based on the actual data frequency detected by pandas.
+        
+        Args:
+            df_work: DataFrame with time series data
+            time_column: Name of the time column
+            forecast_number: Number of time units (e.g., 30 for "30 days")
+            forecast_unit: Unit of time ('days', 'weeks', 'months', 'quarters', 'years')
+            
+        Returns:
+            Number of forecast steps to generate
+        """
+        try:
+            # Create DatetimeIndex for frequency inference
+            time_index = pd.DatetimeIndex(df_work[time_column])
+            
+            # Use pandas built-in frequency inference
+            inferred_freq = pd.infer_freq(time_index)
+            
+            # If pandas can't infer, calculate from time differences (use median for robustness)
+            if inferred_freq is None and len(time_index) > 1:
+                time_diffs = time_index.to_series().diff().dropna()
+                if len(time_diffs) > 0:
+                    # Use median to avoid outliers affecting frequency
+                    median_diff = time_diffs.median()
+                    days_between = median_diff.days
+                else:
+                    days_between = 1
+            else:
+                # Map pandas frequency codes to days
+                freq_to_days = {
+                    'D': 1, 'B': 1,  # Daily, Business day
+                    'W': 7, 'W-SUN': 7, 'W-MON': 7,  # Weekly
+                    'MS': 30, 'M': 30, 'ME': 30,  # Monthly
+                    'QS': 90, 'Q': 90, 'QE': 90,  # Quarterly
+                    'AS': 365, 'A': 365, 'Y': 365, 'YS': 365, 'YE': 365  # Yearly
+                }
+                days_between = freq_to_days.get(inferred_freq, 1)
+            
+            # Convert user's requested period to number of steps based on data frequency
+            unit_to_days = {
+                'days': 1,
+                'weeks': 7,
+                'months': 30,
+                'quarters': 90,
+                'years': 365
+            }
+            
+            # Calculate total days requested
+            requested_days = forecast_number * unit_to_days.get(forecast_unit.lower(), 1)
+            
+            # Convert to number of steps based on data frequency
+            forecast_steps = max(1, int(round(requested_days / days_between)))
+            
+            return forecast_steps
+            
+        except Exception as e:
+            # Fallback: if anything goes wrong, return the forecast_number as-is
+            # This assumes the user knows the data frequency
+            return forecast_number
+
+    def _run(self, time_column: str, value_column: str, p: int = 1, d: int = 1, q: int = 1, 
+             forecast_periods: int = 12, forecast_number: Optional[int] = None, 
+             forecast_unit: Optional[str] = None, start_date: str = "", end_date: str = "") -> str:
         try:
             # Get the most current dataframe
             df = self._get_current_df()
@@ -768,6 +835,10 @@ class RunARIMATool(BaseTool):
             
             time_series = df_work[value_column].values
             
+            # Parse forecast period if number and unit provided (overrides forecast_periods)
+            if forecast_number is not None and forecast_unit is not None:
+                forecast_periods = self._parse_forecast_period(df_work, time_column, forecast_number, forecast_unit)
+            
             # Test for stationarity
             adf_test = adfuller(time_series)
             is_stationary = adf_test[1] <= 0.05
@@ -810,12 +881,34 @@ class RunARIMATool(BaseTool):
             # Create forecast dates
             last_date = df_work[time_column].iloc[-1]
             
-            # Try to infer frequency
-            if len(df_work) > 1:
-                time_diff = df_work[time_column].iloc[1] - df_work[time_column].iloc[0]
-                forecast_dates = pd.date_range(start=last_date + time_diff, periods=forecast_periods, freq=time_diff)
-            else:
-                # Default to daily if can't infer
+            # Infer frequency using pandas or calculate from time differences
+            try:
+                # Create DatetimeIndex for frequency inference
+                time_index = pd.DatetimeIndex(df_work[time_column])
+                
+                # Use pandas built-in frequency inference (most reliable)
+                inferred_freq = pd.infer_freq(time_index)
+                
+                if inferred_freq is None and len(df_work) > 1:
+                    # Fallback: calculate median time difference (more robust than using first two points)
+                    time_diffs = time_index.to_series().diff().dropna()
+                    if len(time_diffs) > 0:
+                        # Use median to avoid outliers affecting frequency
+                        median_diff = time_diffs.median()
+                        inferred_freq = median_diff
+                    else:
+                        inferred_freq = pd.Timedelta(days=1)
+                elif inferred_freq is None:
+                    inferred_freq = pd.Timedelta(days=1)
+                
+                # Generate forecast dates using inferred frequency
+                if isinstance(inferred_freq, str):
+                    forecast_dates = pd.date_range(start=last_date, periods=forecast_periods + 1, freq=inferred_freq)[1:]
+                else:
+                    forecast_dates = pd.date_range(start=last_date + inferred_freq, periods=forecast_periods, freq=inferred_freq)
+            except Exception as e:
+                # Ultimate fallback: use daily frequency
+                inferred_freq = pd.Timedelta(days=1)
                 forecast_dates = pd.date_range(start=last_date + pd.Timedelta(days=1), periods=forecast_periods, freq='D')
             
             # Store results in session state
@@ -839,6 +932,7 @@ class RunARIMATool(BaseTool):
                     'value_column': value_column,
                     'original_dates': df_work[time_column].values,
                     'forecast_dates': forecast_dates.values,  # Ensure it's stored as array
+                    'inferred_freq': inferred_freq,  # Store the inferred frequency for plot tool
                     'order': (p, d, q),
                     'aic': fitted_model.aic,
                     'bic': fitted_model.bic,
