@@ -256,23 +256,23 @@ def generate_smart_suggestions(df: pd.DataFrame) -> List[Dict[str, Any]]:
                 "why": f"Classify {target_col} categories - identify patterns that determine outcomes"
             })
     
-    # Time series ML (if we have time data)
+    # Time series ML (if we have time data) - HIGHEST PRIORITY for time series datasets
     if analysis['date_columns'] and analysis['numeric_columns']:
         time_col = analysis['date_columns'][0]
         target_col = analysis['numeric_columns'][0]
         ml_suggestions.append({
-            "title": f"📈 ARIMA Forecasting: {target_col}",
+            "title": f"� ARIMA Forecast: {target_col}",
             "description": f"Forecast future values of {target_col} over time",
             "query": f"Build an ARIMA model to forecast {target_col} using {time_col}",
             "tool": "run_arima_analysis",
-            "priority": 9,
-            "category": "ml",
+            "priority": 10,  # Highest priority - time series forecasting is premium feature
+            "category": "ml_timeseries",  # Separate category to ensure it appears
             "why": f"Forecast {target_col} trends - predict future patterns from historical data"
         })
     
-    # Add at least one ML suggestion if we have any
+    # Add ML suggestions - include both regression and time series if available
     if ml_suggestions:
-        suggestions.extend(ml_suggestions[:1])  # Add the highest priority ML suggestion
+        suggestions.extend(ml_suggestions[:2])  # Add top 2 ML suggestions (includes time series if present)
     
     # STATISTICAL TEST SUGGESTIONS (always include at least one)
     stat_suggestions = []
@@ -339,7 +339,7 @@ def generate_smart_suggestions(df: pd.DataFrame) -> List[Dict[str, Any]]:
     # Sort suggestions by priority (higher first)
     suggestions.sort(key=lambda x: x['priority'], reverse=True)
     
-    # Reorganize to ensure top 3 slots are: ML, Time Series ML, Statistical Test
+    # Reorganize to ensure top 3 slots are: Time Series ML (if present), Regular ML, Statistical Test
     prioritized = []
     remaining = []
     
@@ -349,8 +349,8 @@ def generate_smart_suggestions(df: pd.DataFrame) -> List[Dict[str, Any]]:
     best_stats = None
     
     for suggestion in suggestions:
-        # Check if it's a time series ML (ARIMA)
-        if suggestion['category'] == 'ml' and 'ARIMA' in suggestion['title']:
+        # Check if it's a time series ML (ARIMA) - HIGHEST PRIORITY
+        if suggestion['category'] == 'ml_timeseries':
             if best_ts_ml is None:
                 best_ts_ml = suggestion
             else:
@@ -370,11 +370,11 @@ def generate_smart_suggestions(df: pd.DataFrame) -> List[Dict[str, Any]]:
         else:
             remaining.append(suggestion)
     
-    # Build prioritized list: ML, Time Series ML, Stats Test, then rest
-    if best_ml:
-        prioritized.append(best_ml)
+    # Build prioritized list: Time Series ML (if present), Regular ML, Stats Test, then rest
     if best_ts_ml:
         prioritized.append(best_ts_ml)
+    if best_ml:
+        prioritized.append(best_ml)
     if best_stats:
         prioritized.append(best_stats)
     

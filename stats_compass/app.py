@@ -35,27 +35,26 @@ from utils.agent_transcript import (
 )
 from planner_mcp import run_mcp_planner
 from smart_suggestions import generate_smart_suggestions
+from api_key_auth import (
+    check_api_key, 
+    render_sidebar_api_key_widget, 
+    get_user_api_key, 
+    handle_openai_error,
+)
 
 # ---------- Setup ----------
 load_dotenv()
 st.set_page_config(page_title="Stats Compass", layout="wide")
 
 # Add authentication check
-try:
-    from auth import check_password
-    if not check_password():
-        st.stop()
-except ImportError:
-    # If auth.py doesn't exist, continue without authentication
-    pass
+# try:
+#     from auth import check_password
+#     if not check_password():
+#         st.stop()
+# except ImportError:
+#     # If auth.py doesn't exist, continue without authentication
+#     pass
 
-# Add API key authentication check (with environment variable fallback for development)
-from api_key_auth import (
-    check_api_key, 
-    render_sidebar_api_key_widget, 
-    get_user_api_key, 
-    handle_openai_error
-)
 if not check_api_key():
     st.stop()
 

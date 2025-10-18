@@ -51,6 +51,7 @@ from tools.statistical_test_tools import (
 from tools.ml_regression_tools import (
     RunLinearRegressionTool,
     RunLogisticRegressionTool,
+    FindOptimalARIMAParametersTool,
     RunARIMATool
 )
 from tools.ml_evaluation_tools import (
@@ -170,6 +171,7 @@ def run_mcp_planner(user_query: str, df: pd.DataFrame, chat_history: List[Dict] 
     # ML Regression Tools
     linear_regression_tool = RunLinearRegressionTool(df=df)
     logistic_regression_tool = RunLogisticRegressionTool(df=df)
+    find_optimal_arima_tool = FindOptimalARIMAParametersTool(df=df)
     arima_tool = RunARIMATool(df=df)
     
     # ML Evaluation Tools (don't need df since they read from session state)
@@ -203,7 +205,7 @@ def run_mcp_planner(user_query: str, df: pd.DataFrame, chat_history: List[Dict] 
         # Statistical analysis tools
         t_test_tool, z_test_tool, chi_square_test_tool,
         # ML regression tools
-        linear_regression_tool, logistic_regression_tool, arima_tool,
+        linear_regression_tool, logistic_regression_tool, find_optimal_arima_tool, arima_tool,
         # ML evaluation tools
         evaluate_regression_tool, evaluate_classification_tool,
         # ML utility tools  
@@ -289,6 +291,15 @@ def run_mcp_planner(user_query: str, df: pd.DataFrame, chat_history: List[Dict] 
          "  • Stores model results for visualization with chart tools\n"
          "  • Business interpretation of probability impacts and feature effects\n"
          "  • Model assumption checking and performance evaluation\n"
+         "- find_optimal_arima_parameters: Find best ARIMA(p,d,q) parameters using grid search (statsmodels only, no dependencies)\n"
+         "  • Tests all combinations of p, d, q parameters and selects lowest AIC\n"
+         "  • Returns optimal (p,d,q) values, AIC/BIC scores, and interpretation\n"
+         "  • **USE THIS** when user asks 'what's the best ARIMA model?' or 'find optimal parameters'\n"
+         "  • Default search: p≤3, d≤2, q≤3 (can adjust with max_p, max_d, max_q)\n"
+         "  • Takes 30-60 seconds (tests ~40 combinations)\n"
+         "  • Requires at least 20 observations\n"
+         "  • Stores optimal parameters in session state for convenience\n"
+         "  • Workflow: 1) Find optimal params → 2) Review recommendations → 3) Run ARIMA with those params\n"
          "- run_arima_analysis: Time series forecasting using ARIMA models\n"
          "  • Simple ARIMA(p,d,q) modeling for univariate time series\n"
          "  • Time slicing: Use start_date/end_date to analyze specific periods\n"

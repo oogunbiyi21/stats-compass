@@ -5,6 +5,7 @@ This module provides comprehensive linear and logistic regression capabilities
 with PM-friendly interpretations and professional visualizations.
 """
 
+
 import pandas as pd
 import numpy as np
 import plotly.express as px
@@ -674,6 +675,179 @@ class RunLogisticRegressionTool(BaseTool):
             return f"❌ Error in logistic regression analysis: {str(e)}"
 
 
+class FindOptimalARIMAInput(BaseModel):
+    time_column: str = Field(description="Column containing time/date values")
+    value_column: str = Field(description="Column containing the time series values")
+    max_p: int = Field(default=3, description="Maximum autoregressive order to test (default: 3)")
+    max_d: int = Field(default=2, description="Maximum differencing order to test (default: 2)")
+    max_q: int = Field(default=3, description="Maximum moving average order to test (default: 3)")
+    start_date: str = Field(default="", description="Start date for time slice (YYYY-MM-DD)")
+    end_date: str = Field(default="", description="End date for time slice (YYYY-MM-DD)")
+
+
+class FindOptimalARIMAParametersTool(BaseTool):
+    """
+    Find optimal ARIMA parameters using simple grid search with statsmodels.
+    Tests all combinations of (p,d,q) and selects the one with lowest AIC.
+    """
+    
+    name: str = "find_optimal_arima_parameters"
+    description: str = "Find optimal ARIMA(p,d,q) parameters using grid search with AIC model selection. No external dependencies - pure statsmodels."
+    args_schema: Type[BaseModel] = FindOptimalARIMAInput
+    
+    _df: pd.DataFrame = PrivateAttr()
+    
+    def __init__(self, df: pd.DataFrame):
+        super().__init__()
+        self._df = df
+    
+    def _get_current_df(self) -> pd.DataFrame:
+        """Get the most current dataframe, checking session state for updates"""
+        if hasattr(st, 'session_state') and 'df' in st.session_state:
+            return st.session_state.df
+        return self._df
+    
+    def _simple_parameter_search(self, time_series, max_p=3, max_d=2, max_q=3):
+        """
+        Simple grid search for ARIMA parameters.
+        No external dependencies - just statsmodels.
+        """
+        
+        best_aic = float('inf')
+        best_order = None
+        best_bic = None
+        tested_count = 0
+        
+        for p in range(max_p + 1):
+            for d in range(max_d + 1):
+                for q in range(max_q + 1):
+                    if p == 0 and d == 0 and q == 0:
+                        continue
+                    try:
+                        tested_count += 1
+                        model = ARIMA(time_series, order=(p, d, q))
+                        fitted = model.fit()
+                        if fitted.aic < best_aic:
+                            best_aic = fitted.aic
+                            best_bic = fitted.bic
+                            best_order = (p, d, q)
+                    except:
+                        continue
+        
+        return best_order, best_aic, best_bic, tested_count
+    
+    def _run(
+        self, 
+        time_column: str, 
+        value_column: str,
+        max_p: int = 3,
+        max_d: int = 2,
+        max_q: int = 3,
+        start_date: str = "",
+        end_date: str = ""
+    ) -> str:
+        try:
+            # Get and validate data
+            df = self._get_current_df()
+            
+            if time_column not in df.columns:
+                return f"❌ Time column '{time_column}' not found. Available: {list(df.columns)}"
+            
+            if value_column not in df.columns:
+                return f"❌ Value column '{value_column}' not found. Available: {list(df.columns)}"
+            
+            # Prepare data
+            df_work = df[[time_column, value_column]].copy().dropna()
+            
+            if len(df_work) < 20:
+                return f"❌ Insufficient data. Need at least 20 observations for ARIMA parameter search, got {len(df_work)}"
+            
+            # Convert and sort
+            try:
+                df_work[time_column] = pd.to_datetime(df_work[time_column])
+            except:
+                return f"❌ Could not convert '{time_column}' to datetime"
+            
+            df_work = df_work.sort_values(time_column).reset_index(drop=True)
+            
+            # Apply time slicing if provided
+            if start_date or end_date:
+                original_length = len(df_work)
+                if start_date:
+                    df_work = df_work[df_work[time_column] >= pd.to_datetime(start_date)]
+                if end_date:
+                    df_work = df_work[df_work[time_column] <= pd.to_datetime(end_date)]
+                
+                if len(df_work) == 0:
+                    return f"❌ No data in date range: {start_date} to {end_date}"
+                
+                slice_info = f" (sliced from {original_length} to {len(df_work)} observations)"
+            else:
+                slice_info = ""
+            
+            # Convert to numeric
+            try:
+                df_work[value_column] = pd.to_numeric(df_work[value_column])
+            except:
+                return f"❌ Could not convert '{value_column}' to numeric"
+            
+            time_series = df_work[value_column].values
+            
+            # Run grid search
+            result_lines = [
+                f"🔍 **Finding Optimal ARIMA Parameters for {value_column}**",
+                f"",
+                f"📊 Dataset: {len(time_series)} observations{slice_info}",
+                f"🔎 Search space: p≤{max_p}, d≤{max_d}, q≤{max_q}",
+                f"⏳ Testing combinations... (may take 30-60 seconds)",
+                f""
+            ]
+            
+            best_order, best_aic, best_bic, tested_count = self._simple_parameter_search(
+                time_series, max_p, max_d, max_q
+            )
+            
+            if best_order is None:
+                return "❌ Could not find any valid ARIMA model. Try different parameters or check your data."
+            
+            p, d, q = best_order
+            
+            result_lines.extend([
+                f"✅ **Optimal Parameters Found** (tested {tested_count} combinations):",
+                f"  • ARIMA Order: ({p}, {d}, {q})",
+                f"  • AIC: {best_aic:.2f}",
+                f"  • BIC: {best_bic:.2f}",
+                f"",
+                f"📊 **What This Means:**",
+                f"  • p={p}: Uses {p} past {'value' if p == 1 else 'values'} for prediction",
+                f"  • d={d}: Time series {'needs' if d > 0 else 'does not need'} differencing",
+                f"  • q={q}: Uses {q} past forecast {'error' if q == 1 else 'errors'}",
+                f"",
+                f"💡 **Next Step:**",
+                f"  Run ARIMA analysis with these parameters:",
+                f"  `run_arima_analysis(time_column='{time_column}', value_column='{value_column}', p={p}, d={d}, q={q})`"
+            ])
+            
+            # Store in session state for convenience
+            if hasattr(st, 'session_state'):
+                if 'optimal_arima_params' not in st.session_state:
+                    st.session_state.optimal_arima_params = {}
+                
+                st.session_state.optimal_arima_params[value_column] = {
+                    'order': best_order,
+                    'aic': best_aic,
+                    'bic': best_bic
+                }
+            
+            return "\n".join(result_lines)
+            
+        except Exception as e:
+            return f"❌ Error finding optimal parameters: {str(e)}"
+    
+    def _arun(self, *args, **kwargs):
+        raise NotImplementedError("Async not supported")
+
+
 class ARIMAInput(BaseModel):
     time_column: str = Field(description="Column containing time/date values")
     value_column: str = Field(description="Column containing the time series values to model")
@@ -714,10 +888,102 @@ class RunARIMATool(BaseTool):
             return st.session_state.df
         return self._df
 
+    def _infer_time_frequency(self, time_index: pd.DatetimeIndex) -> pd.Timedelta:
+        """
+        Infer the frequency of a time series as a Timedelta.
+        Returns the MEDIAN time difference between consecutive observations.
+        
+        Why median? Robust to:
+        - Missing data points
+        - Occasional gaps (weekends, holidays)
+        - Irregular but mostly-consistent spacing
+        
+        Args:
+            time_index: DatetimeIndex of the time series
+            
+        Returns:
+            pd.Timedelta representing the typical time between observations
+        """
+        if len(time_index) < 2:
+            return pd.Timedelta(days=1)  # Default fallback
+        
+        # Calculate all time differences
+        time_diffs = time_index.to_series().diff().dropna()
+        
+        if len(time_diffs) == 0:
+            return pd.Timedelta(days=1)
+        
+        # Use median - more robust than mean or mode
+        return time_diffs.median()
+
+    def _convert_forecast_period_to_steps(
+        self, 
+        time_index: pd.DatetimeIndex,
+        forecast_number: int, 
+        forecast_unit: str
+    ) -> int:
+        """
+        Convert a human-readable forecast period (e.g., "30 days", "6 months") 
+        into the number of data points to forecast.
+        
+        Args:
+            time_index: DatetimeIndex of the time series
+            forecast_number: Number of time units (e.g., 30 for "30 days")
+            forecast_unit: Unit of time ('days', 'weeks', 'months', 'quarters', 'years')
+            
+        Returns:
+            Number of forecast steps to generate
+        """
+        # Get the actual data frequency
+        data_freq = self._infer_time_frequency(time_index)
+        
+        # Convert user's request to timedelta
+        unit_mapping = {
+            'days': pd.Timedelta(days=forecast_number),
+            'weeks': pd.Timedelta(weeks=forecast_number),
+            'months': pd.Timedelta(days=forecast_number * 30),  # Approximate
+            'quarters': pd.Timedelta(days=forecast_number * 91),  # Approximate
+            'years': pd.Timedelta(days=forecast_number * 365)  # Approximate
+        }
+        
+        requested_period = unit_mapping.get(forecast_unit.lower())
+        if requested_period is None:
+            # Invalid unit, just return the number as-is
+            return forecast_number
+        
+        # Calculate steps: how many data_freq periods fit in requested_period?
+        steps = int(round(requested_period / data_freq))
+        
+        return max(1, steps)  # At least 1 step
+
+    def _generate_forecast_dates(
+        self, 
+        last_date: pd.Timestamp, 
+        data_freq: pd.Timedelta, 
+        steps: int
+    ) -> pd.DatetimeIndex:
+        """
+        Generate forecast dates using simple timedelta arithmetic.
+        
+        Args:
+            last_date: Last date in the historical data
+            data_freq: Time frequency as a Timedelta
+            steps: Number of forecast steps
+            
+        Returns:
+            DatetimeIndex of forecast dates
+        """
+        return pd.date_range(
+            start=last_date + data_freq,
+            periods=steps,
+            freq=data_freq
+        )
+
     def _parse_forecast_period(self, df_work: pd.DataFrame, time_column: str, forecast_number: int, forecast_unit: str) -> int:
         """
-        Convert forecast request (e.g., 30 days, 6 months) into appropriate number of forecast steps
-        based on the actual data frequency detected by pandas.
+        Convert forecast request (e.g., 30 days, 6 months) into appropriate number of forecast steps.
+        
+        This is a simple wrapper around _convert_forecast_period_to_steps for backward compatibility.
         
         Args:
             df_work: DataFrame with time series data
@@ -728,49 +994,8 @@ class RunARIMATool(BaseTool):
         Returns:
             Number of forecast steps to generate
         """
-        try:
-            # Create DatetimeIndex for frequency inference
-            time_index = pd.DatetimeIndex(df_work[time_column])
-            
-            # Use pandas built-in frequency inference
-            inferred_freq = pd.infer_freq(time_index)
-            
-            # If pandas can't infer, calculate from time differences
-            if inferred_freq is None and len(time_index) > 1:
-                time_diff = time_index[1] - time_index[0]
-                days_between = time_diff.days
-            else:
-                # Map pandas frequency codes to days
-                freq_to_days = {
-                    'D': 1, 'B': 1,  # Daily, Business day
-                    'W': 7, 'W-SUN': 7, 'W-MON': 7,  # Weekly
-                    'MS': 30, 'M': 30, 'ME': 30,  # Monthly
-                    'QS': 90, 'Q': 90, 'QE': 90,  # Quarterly
-                    'AS': 365, 'A': 365, 'Y': 365, 'YS': 365, 'YE': 365  # Yearly
-                }
-                days_between = freq_to_days.get(inferred_freq, 1)
-            
-            # Convert user's requested period to number of steps based on data frequency
-            unit_to_days = {
-                'days': 1,
-                'weeks': 7,
-                'months': 30,
-                'quarters': 90,
-                'years': 365
-            }
-            
-            # Calculate total days requested
-            requested_days = forecast_number * unit_to_days.get(forecast_unit.lower(), 1)
-            
-            # Convert to number of steps based on data frequency
-            forecast_steps = max(1, int(round(requested_days / days_between)))
-            
-            return forecast_steps
-            
-        except Exception as e:
-            # Fallback: if anything goes wrong, return the forecast_number as-is
-            # This assumes the user knows the data frequency
-            return forecast_number
+        time_index = pd.DatetimeIndex(df_work[time_column])
+        return self._convert_forecast_period_to_steps(time_index, forecast_number, forecast_unit)
 
     def _run(self, time_column: str, value_column: str, p: int = 1, d: int = 1, q: int = 1, 
              forecast_periods: int = 12, forecast_number: Optional[int] = None, 
@@ -873,38 +1098,15 @@ class RunARIMATool(BaseTool):
             except:
                 ljung_box_pvalue = None
             
-            # Create forecast dates
+            # Create forecast dates using simple, reliable method
             last_date = df_work[time_column].iloc[-1]
+            time_index = pd.DatetimeIndex(df_work[time_column])
             
-            # Infer frequency using pandas or calculate from time differences
-            try:
-                # Create DatetimeIndex for frequency inference
-                time_index = pd.DatetimeIndex(df_work[time_column])
-                
-                # Use pandas built-in frequency inference (most reliable)
-                inferred_freq = pd.infer_freq(time_index)
-                
-                if inferred_freq is None and len(df_work) > 1:
-                    # Fallback: calculate median time difference (more robust than using first two points)
-                    time_diffs = time_index.to_series().diff().dropna()
-                    if len(time_diffs) > 0:
-                        # Use median to avoid outliers affecting frequency
-                        median_diff = time_diffs.median()
-                        inferred_freq = median_diff
-                    else:
-                        inferred_freq = pd.Timedelta(days=1)
-                elif inferred_freq is None:
-                    inferred_freq = pd.Timedelta(days=1)
-                
-                # Generate forecast dates using inferred frequency
-                if isinstance(inferred_freq, str):
-                    forecast_dates = pd.date_range(start=last_date, periods=forecast_periods + 1, freq=inferred_freq)[1:]
-                else:
-                    forecast_dates = pd.date_range(start=last_date + inferred_freq, periods=forecast_periods, freq=inferred_freq)
-            except Exception as e:
-                # Ultimate fallback: use daily frequency
-                inferred_freq = pd.Timedelta(days=1)
-                forecast_dates = pd.date_range(start=last_date + pd.Timedelta(days=1), periods=forecast_periods, freq='D')
+            # Infer frequency as Timedelta (median time difference)
+            inferred_freq = self._infer_time_frequency(time_index)
+            
+            # Generate forecast dates
+            forecast_dates = self._generate_forecast_dates(last_date, inferred_freq, forecast_periods)
             
             # Store results in session state
             if hasattr(st, 'session_state'):
@@ -980,15 +1182,32 @@ class RunARIMATool(BaseTool):
             else:
                 result_lines.append(f"  • Ljung-Box p-value: N/A")
             
-            result_lines.extend([
+            # Calculate data frequency for display
+            freq_days = inferred_freq.days + inferred_freq.seconds / 86400  # Convert to decimal days
+            
+            # Build forecast summary with conversion explanation
+            forecast_summary = [
                 f"",
                 f"🔮 **Forecast Summary:**",
-                f"  • Forecast periods: {forecast_periods}",
-                f"  • Forecast range: {forecast_dates[0].strftime('%Y-%m-%d')} to {forecast_dates[-1].strftime('%Y-%m-%d')}",
+                f"  • Forecast periods: {forecast_periods} data points"
+            ]
+            
+            # Add conversion explanation if forecast was specified in time units
+            if forecast_number is not None and forecast_unit is not None:
+                calendar_days = (forecast_dates[-1] - forecast_dates[0]).days + 1
+                forecast_summary.append(f"  • Conversion: {forecast_number} {forecast_unit} → {forecast_periods} data points (based on ~{freq_days:.1f}-day frequency)")
+                forecast_summary.append(f"  • Forecast range: {forecast_dates[0].strftime('%Y-%m-%d')} to {forecast_dates[-1].strftime('%Y-%m-%d')} ({calendar_days} calendar days)")
+            else:
+                forecast_summary.append(f"  • Forecast range: {forecast_dates[0].strftime('%Y-%m-%d')} to {forecast_dates[-1].strftime('%Y-%m-%d')}")
+            
+            forecast_summary.extend([
+                f"  • Data frequency: ~{freq_days:.1f} days between observations",
                 f"  • Average forecast value: {np.mean(forecast_result):.2f}",
                 f"",
                 f"📊 **Model Interpretation:**"
             ])
+            
+            result_lines.extend(forecast_summary)
             
             # Add overfitting warnings if detected
             if overfitting_warnings:
@@ -1024,8 +1243,15 @@ class RunARIMATool(BaseTool):
                 f"🎯 **Forecast Insights:**",
                 f"  • Trend direction: {trend_direction.title()}",
                 f"  • Expected change: {trend_magnitude:.1f}% vs recent average",
-                f"  • Use create_arima_plot and create_arima_forecast_plot for visualization"
+                f"",
+                f"📊 **Next Steps for Visualization:**",
+                f"  • To plot model fit: `create_arima_plot(title='ARIMA Model Fit')`",
+                f"  • To plot forecast: `create_arima_forecast_plot(forecast_steps={forecast_periods}, title='Forecast')`",
+                f"  • Note: Use forecast_steps={forecast_periods} to show all {forecast_periods} computed data points"
             ])
+            
+            if forecast_number is not None and forecast_unit is not None:
+                result_lines.append(f"  • This covers the requested {forecast_number} {forecast_unit} forecast period")
             
             return "\n".join(result_lines)
             
