@@ -384,22 +384,7 @@ def generate_smart_suggestions(df: pd.DataFrame) -> List[Dict[str, Any]]:
     return prioritized
 
 
-def get_category_emoji(category: str) -> str:
-    """Get emoji for suggestion category"""
-    emoji_map = {
-        'temporal': '📈',
-        'relationships': '🔗', 
-        'distribution': '📊',
-        'categorical': '🏷️',
-        'segmentation': '🔍',
-        'quality': '🚨',
-        'ml': '🤖',
-        'stats': '📊'
-    }
-    return emoji_map.get(category, '💡')
-
 
 def format_suggestion_for_ui(suggestion: Dict[str, Any]) -> str:
     """Format a suggestion for display in the UI"""
-    emoji = get_category_emoji(suggestion['category'])
-    return f"{emoji} **{suggestion['title']}**\n\n_{suggestion['description']}_\n\n💭 {suggestion['why']}"
+    return f"**{suggestion['title']}**\n\n_{suggestion['description']}_\n\n💭 {suggestion['why']}"
