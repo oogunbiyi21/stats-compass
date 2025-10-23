@@ -919,7 +919,7 @@ def export_chart_as_image(chart_info: Dict[str, Any], format: str = "png") -> by
                 raise ValueError("No correlation matrix data available")
         elif chart_type == 't_test':
             # Use the stored plotly figure directly but ensure proper template for export
-            fig = chart_info.get('fig')
+            fig = chart_info.get('figure')
             if not fig:
                 raise ValueError("No statistical test figure available")
             
@@ -953,7 +953,7 @@ def export_chart_as_image(chart_info: Dict[str, Any], format: str = "png") -> by
                     )
         elif chart_type == 'z_test':
             # Use the stored plotly figure directly but ensure proper template for export
-            fig = chart_info.get('fig')
+            fig = chart_info.get('figure')
             if not fig:
                 raise ValueError("No statistical test figure available")
             
@@ -987,7 +987,7 @@ def export_chart_as_image(chart_info: Dict[str, Any], format: str = "png") -> by
                     )
         elif chart_type == 'chi_square_test':
             # Use the stored plotly figure directly but ensure proper template for export
-            fig = chart_info.get('fig')
+            fig = chart_info.get('figure')
             if not fig:
                 raise ValueError("No statistical test figure available")
             

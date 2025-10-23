@@ -153,7 +153,7 @@ def display_single_chart(chart_info: Dict[str, Any], chart_id: Optional[str] = N
         st.subheader(f"📊 {title}")
         try:
             # Get the plotly figure from chart_info
-            fig = chart_info.get('fig')
+            fig = chart_info.get('figure')
             if fig:
                 st.plotly_chart(fig, use_container_width=True, key=f"ttest_{chart_id}")
             else:
@@ -165,7 +165,7 @@ def display_single_chart(chart_info: Dict[str, Any], chart_id: Optional[str] = N
         st.subheader(f"📊 {title}")
         try:
             # Get the plotly figure from chart_info
-            fig = chart_info.get('fig')
+            fig = chart_info.get('figure')
             if fig:
                 st.plotly_chart(fig, use_container_width=True, key=f"ztest_{chart_id}")
             else:
@@ -177,7 +177,7 @@ def display_single_chart(chart_info: Dict[str, Any], chart_id: Optional[str] = N
         st.subheader(f"📊 {title}")
         try:
             # Get the plotly figure from chart_info
-            fig = chart_info.get('fig')
+            fig = chart_info.get('figure')
             if fig:
                 st.plotly_chart(fig, use_container_width=True, key=f"chisquare_{chart_id}")
             else:

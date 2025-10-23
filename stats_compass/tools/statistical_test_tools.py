@@ -4,7 +4,7 @@ Statistical test tools for DS Auto Insights.
 Provides T-test and Z-test implementations for hypothesis testing.
 """
 
-from typing import Type, Optional, List
+from typing import Type, Optional, List, Tuple
 import pandas as pd
 import numpy as np
 import streamlit as st
@@ -13,6 +13,218 @@ from langchain.tools.base import BaseTool
 import plotly.graph_objects as go
 import plotly.express as px
 from scipy import stats
+
+
+class BaseHypothesisTestTool(BaseTool):
+    """Base class for hypothesis testing tools (T-test, Z-test).
+    Extracts common validation, formatting, and visualization logic."""
+    
+    _df: pd.DataFrame = PrivateAttr()
+    
+    def __init__(self, df: pd.DataFrame):
+        super().__init__()
+        self._df = df
+    
+    def _validate_column(self, column: str) -> Tuple[bool, str, pd.Series]:
+        """Validate column exists, is numeric, and has sufficient data.
+        Returns: (is_valid, error_message, cleaned_data)"""
+        if column not in self._df.columns:
+            return False, f"❌ Column '{column}' not found. Available columns: {list(self._df.columns)}", None
+        
+        if not pd.api.types.is_numeric_dtype(self._df[column]):
+            return False, f"❌ Column '{column}' must be numeric for hypothesis testing", None
+        
+        data = self._df[column].dropna()
+        if len(data) == 0:
+            return False, f"❌ No valid data in column '{column}' after removing missing values", None
+        
+        if len(data) < 2:
+            return False, f"❌ Need at least 2 observations, got {len(data)}", None
+        
+        return True, "", data
+    
+    def _extract_group_data(self, column: str, group_column: str, group_values: Optional[List[str]]) -> Tuple[bool, str, any, any, any, any]:
+        """Extract data for two groups. Handles group matching gracefully.
+        Returns: (is_valid, error_message, group1_name, group2_name, group1_data, group2_data)"""
+        if not group_column or group_column not in self._df.columns:
+            return False, f"❌ For two-sample test, specify a valid group_column", None, None, None, None
+        
+        unique_groups = list(self._df[group_column].dropna().unique())
+        
+        # If group_values specified, use those; otherwise check for exactly 2 groups
+        if group_values:
+            if len(group_values) != 2:
+                return False, f"❌ For two-sample test, group_values must contain exactly 2 values, got {len(group_values)}: {group_values}", None, None, None, None
+            
+            # Let pandas handle type matching - filter and check if data exists
+            group1_data = self._df[self._df[group_column] == group_values[0]][column].dropna()
+            group2_data = self._df[self._df[group_column] == group_values[1]][column].dropna()
+            
+            if len(group1_data) == 0:
+                return False, f"❌ No data found for group '{group_values[0]}'. Available groups: {unique_groups}", None, None, None, None
+            if len(group2_data) == 0:
+                return False, f"❌ No data found for group '{group_values[1]}'. Available groups: {unique_groups}", None, None, None, None
+            
+            selected_groups = group_values
+        else:
+            if len(unique_groups) != 2:
+                return False, f"❌ Two-sample test requires exactly 2 groups, found {len(unique_groups)}: {unique_groups}. Use group_values parameter to specify which 2 groups to compare.", None, None, None, None
+            
+            selected_groups = unique_groups
+            group1_data = self._df[self._df[group_column] == selected_groups[0]][column].dropna()
+            group2_data = self._df[self._df[group_column] == selected_groups[1]][column].dropna()
+        
+        # Validate group sizes
+        if len(group1_data) < 2 or len(group2_data) < 2:
+            return False, f"❌ Each group needs at least 2 observations. Group sizes: {selected_groups[0]}={len(group1_data)}, {selected_groups[1]}={len(group2_data)}", None, None, None, None
+        
+        return True, "", selected_groups[0], selected_groups[1], group1_data, group2_data
+    
+    def _calculate_effect_size(self, test_type: str, data1, data2=None, null_value=0) -> float:
+        """Calculate Cohen's d effect size."""
+        if test_type == "one_sample":
+            return (data1.mean() - null_value) / data1.std()
+        elif test_type == "two_sample":
+            pooled_std = np.sqrt(((len(data1) - 1) * data1.var() + 
+                                 (len(data2) - 1) * data2.var()) / 
+                                (len(data1) + len(data2) - 2))
+            return (data1.mean() - data2.mean()) / pooled_std
+        elif test_type == "paired":
+            differences = data1 - data2
+            return differences.mean() / differences.std()
+        return 0
+    
+    def _interpret_effect_size(self, effect_size: float) -> str:
+        """Interpret Cohen's d effect size magnitude."""
+        abs_effect = abs(effect_size)
+        if abs_effect < 0.2:
+            return "negligible"
+        elif abs_effect < 0.5:
+            return "small"
+        elif abs_effect < 0.8:
+            return "medium"
+        else:
+            return "large"
+    
+    def _format_results(self, result_lines: List[str], p_value: float, effect_size: float, 
+                       alpha: float, test_name: str, test_type: str) -> List[str]:
+        """Add interpretation and assumptions to results."""
+        result_lines.extend([
+            f"",
+            f"🎯 **Statistical Interpretation:**"
+        ])
+        
+        if p_value < alpha:
+            result_lines.append(f"  • **Significant result** (p < {alpha}): Reject null hypothesis")
+            result_lines.append(f"  • There IS a statistically significant difference")
+        else:
+            result_lines.append(f"  • **Not significant** (p ≥ {alpha}): Fail to reject null hypothesis")
+            result_lines.append(f"  • There is NO statistically significant difference")
+        
+        effect_magnitude = self._interpret_effect_size(effect_size)
+        result_lines.extend([
+            f"  • **Effect size:** {effect_magnitude} (|d| = {abs(effect_size):.3f})",
+            f"",
+            f"⚠️ **Assumptions:**",
+            f"  • Data is approximately normally distributed",
+            f"  • Observations are independent",
+            f"  • Data is measured at interval/ratio level"
+        ])
+        
+        if test_type == "two_sample" and test_name == "t-test":
+            result_lines.append(f"  • Unequal variances assumed (Welch's t-test)")
+        elif test_name == "z-test":
+            result_lines.append(f"  • Large sample size (n≥30) OR population standard deviation is known")
+        
+        return result_lines
+    
+    def _create_one_sample_viz(self, data: pd.Series, mean_value: float, null_value: float, 
+                               column: str, test_name: str) -> go.Figure:
+        """Create histogram visualization for one-sample test."""
+        fig = go.Figure()
+        
+        fig.add_trace(go.Histogram(
+            x=data,
+            name="Data Distribution",
+            opacity=0.7,
+            nbinsx=30
+        ))
+        
+        fig.add_vline(x=mean_value, line_dash="dash", line_color="red", 
+                     annotation_text=f"Sample Mean: {mean_value:.3f}")
+        fig.add_vline(x=null_value, line_dash="solid", line_color="blue", 
+                     annotation_text=f"Null Value: {null_value}")
+        
+        fig.update_layout(
+            title=f"One-Sample {test_name.title()}: {column}",
+            xaxis_title=column,
+            yaxis_title="Frequency",
+            showlegend=True
+        )
+        
+        return fig
+    
+    def _create_two_sample_viz(self, group1_data: pd.Series, group2_data: pd.Series,
+                               group1_name: str, group2_name: str, column: str, 
+                               group_column: str, test_name: str) -> go.Figure:
+        """Create box plot visualization for two-sample test."""
+        fig = go.Figure()
+        fig.add_trace(go.Box(y=group1_data, name=str(group1_name), boxpoints="outliers"))
+        fig.add_trace(go.Box(y=group2_data, name=str(group2_name), boxpoints="outliers"))
+        
+        fig.update_layout(
+            title=f"Two-Sample {test_name.title()}: {column} by {group_column}",
+            xaxis_title=group_column,
+            yaxis_title=column,
+            showlegend=True
+        )
+        
+        return fig
+    
+    def _create_paired_viz(self, data1: pd.Series, data2: pd.Series, 
+                          column: str, column2: str, test_name: str) -> go.Figure:
+        """Create scatter plot visualization for paired test."""
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(
+            x=data1, y=data2, mode='markers',
+            name='Data Points', opacity=0.6
+        ))
+        
+        # Add line of equality
+        min_val = min(data1.min(), data2.min())
+        max_val = max(data1.max(), data2.max())
+        fig.add_trace(go.Scatter(
+            x=[min_val, max_val], y=[min_val, max_val],
+            mode='lines', name='Line of Equality',
+            line=dict(dash='dash', color='red')
+        ))
+        
+        fig.update_layout(
+            title=f"Paired {test_name.title()}: {column} vs {column2}",
+            xaxis_title=column,
+            yaxis_title=column2,
+            showlegend=True
+        )
+        
+        return fig
+    
+    def _store_chart(self, chart_type: str, title: str, fig: go.Figure, test_type: str):
+        """Store chart in session state for display."""
+        chart_info = {
+            'type': chart_type,
+            'title': title,
+            'data': None,
+            'figure': fig,  # Standardized to 'figure' (more descriptive than 'fig')
+            'chart_config': {
+                'chart_type': 'statistical_test',
+                'test_type': test_type
+            }
+        }
+        
+        if hasattr(st, 'session_state'):
+            if 'current_response_charts' not in st.session_state:
+                st.session_state.current_response_charts = []
+            st.session_state.current_response_charts.append(chart_info)
 
 
 class TTestInput(BaseModel):
@@ -25,46 +237,29 @@ class TTestInput(BaseModel):
     alpha: float = Field(default=0.05, description="Significance level (default 0.05)")
 
 
-class RunTTestTool(BaseTool):
+class RunTTestTool(BaseHypothesisTestTool):
     name: str = "run_t_test"
     description: str = "Perform t-tests (one-sample, two-sample, or paired) to test hypotheses about means. Uses t-distribution for small samples or unknown population variance. Includes visualizations and practical interpretation."
     args_schema: Type[BaseModel] = TTestInput
-
-    _df: pd.DataFrame = PrivateAttr()
-
-    def __init__(self, df: pd.DataFrame):
-        super().__init__()
-        self._df = df
 
     def _run(self, column: str, test_type: str = "one_sample", null_value: float = 0, 
              group_column: Optional[str] = None, group_values: Optional[List[str]] = None, 
              column2: Optional[str] = None, alpha: float = 0.05) -> str:
         try:
-            # Validate inputs
-            if column not in self._df.columns:
-                return f"❌ Column '{column}' not found. Available columns: {list(self._df.columns)}"
+            # Validate primary column
+            is_valid, error_msg, data = self._validate_column(column)
+            if not is_valid:
+                return error_msg
             
-            if not pd.api.types.is_numeric_dtype(self._df[column]):
-                return f"❌ Column '{column}' must be numeric for t-test"
-            
-            # Clean data - remove missing values
-            data = self._df[column].dropna()
-            if len(data) == 0:
-                return f"❌ No valid data in column '{column}' after removing missing values"
-            
-            if len(data) < 2:
-                return f"❌ Need at least 2 observations for t-test, got {len(data)}"
-
             result_lines = [f"📊 **T-Test Analysis: {column}**\n"]
             
             # Perform the appropriate t-test
             if test_type == "one_sample":
-                # One-sample t-test
                 t_stat, p_value = stats.ttest_1samp(data, null_value)
                 degrees_freedom = len(data) - 1
                 mean_value = data.mean()
                 std_value = data.std()
-                effect_size = (mean_value - null_value) / std_value  # Cohen's d
+                effect_size = self._calculate_effect_size("one_sample", data, null_value=null_value)
                 
                 result_lines.extend([
                     f"**Test Type:** One-sample t-test",
@@ -84,87 +279,16 @@ class RunTTestTool(BaseTool):
                     f"  • Effect size (Cohen's d): {effect_size:.4f}",
                 ])
                 
-                # Create visualization
-                fig = go.Figure()
-                
-                # Histogram of data
-                fig.add_trace(go.Histogram(
-                    x=data,
-                    name="Data Distribution",
-                    opacity=0.7,
-                    nbinsx=30
-                ))
-                
-                # Add vertical lines for sample mean and null value
-                fig.add_vline(x=mean_value, line_dash="dash", line_color="red", 
-                             annotation_text=f"Sample Mean: {mean_value:.3f}")
-                fig.add_vline(x=null_value, line_dash="solid", line_color="blue", 
-                             annotation_text=f"Null Value: {null_value}")
-                
-                fig.update_layout(
-                    title=f"One-Sample T-Test: {column}",
-                    xaxis_title=column,
-                    yaxis_title="Frequency",
-                    showlegend=True
-                )
+                fig = self._create_one_sample_viz(data, mean_value, null_value, column, "t-test")
                 
             elif test_type == "two_sample":
-                # Two-sample t-test
-                if not group_column or group_column not in self._df.columns:
-                    return f"❌ For two-sample t-test, specify a valid group_column"
+                is_valid, error_msg, group1_name, group2_name, group1_data, group2_data = self._extract_group_data(column, group_column, group_values)
+                if not is_valid:
+                    return error_msg
                 
-                # Get unique groups from the group column
-                unique_groups = list(self._df[group_column].unique())
-                
-                # If group_values specified, use those; otherwise check for exactly 2 groups
-                if group_values:
-                    if len(group_values) != 2:
-                        return f"❌ For two-sample t-test, group_values must contain exactly 2 values, got {len(group_values)}: {group_values}"
-                    
-                    # Convert group_values to the same type as the data for comparison
-                    try:
-                        # Try to convert group_values to match the data type
-                        data_type = self._df[group_column].dtype
-                        if pd.api.types.is_numeric_dtype(data_type):
-                            # Convert to numeric if the column is numeric
-                            converted_group_values = [pd.to_numeric(gv) for gv in group_values]
-                        else:
-                            # Keep as strings if column is categorical/object
-                            converted_group_values = [str(gv) for gv in group_values]
-                            unique_groups = [str(ug) for ug in unique_groups]
-                    except (ValueError, TypeError):
-                        # If conversion fails, use original values
-                        converted_group_values = group_values
-                    
-                    # Check if specified groups exist
-                    missing_groups = [g for g in converted_group_values if g not in unique_groups]
-                    if missing_groups:
-                        return f"❌ Groups not found in data: {missing_groups}. Available groups: {unique_groups}"
-                    
-                    selected_groups = converted_group_values
-                else:
-                    if len(unique_groups) != 2:
-                        return f"❌ Two-sample t-test requires exactly 2 groups, found {len(unique_groups)}: {unique_groups}. Use group_values parameter to specify which 2 groups to compare."
-                    
-                    selected_groups = unique_groups
-                
-                # Extract data for the selected groups
-                group1_name = selected_groups[0]
-                group2_name = selected_groups[1]
-                group1_data = self._df[self._df[group_column] == group1_name][column].dropna()
-                group2_data = self._df[self._df[group_column] == group2_name][column].dropna()
-                
-                if len(group1_data) < 2 or len(group2_data) < 2:
-                    return f"❌ Each group needs at least 2 observations. Group sizes: {group1_name}={len(group1_data)}, {group2_name}={len(group2_data)}"
-                
-                # Perform two-sample t-test (assuming unequal variances by default - Welch's t-test)
+                # Perform Welch's t-test (unequal variances assumed)
                 t_stat, p_value = stats.ttest_ind(group1_data, group2_data, equal_var=False)
-                
-                # Calculate effect size (Cohen's d for two groups)
-                pooled_std = np.sqrt(((len(group1_data) - 1) * group1_data.var() + 
-                                     (len(group2_data) - 1) * group2_data.var()) / 
-                                    (len(group1_data) + len(group2_data) - 2))
-                effect_size = (group1_data.mean() - group2_data.mean()) / pooled_std
+                effect_size = self._calculate_effect_size("two_sample", group1_data, group2_data)
                 
                 result_lines.extend([
                     f"**Test Type:** Two-sample t-test (Welch's - unequal variances assumed)",
@@ -182,27 +306,15 @@ class RunTTestTool(BaseTool):
                     f"  • Effect size (Cohen's d): {effect_size:.4f}",
                 ])
                 
-                # Create box plot comparison
-                fig = go.Figure()
-                fig.add_trace(go.Box(y=group1_data, name=str(group1_name), boxpoints="outliers"))
-                fig.add_trace(go.Box(y=group2_data, name=str(group2_name), boxpoints="outliers"))
-                
-                fig.update_layout(
-                    title=f"Two-Sample T-Test: {column} by {group_column}",
-                    xaxis_title=group_column,
-                    yaxis_title=column,
-                    showlegend=True
-                )
+                fig = self._create_two_sample_viz(group1_data, group2_data, group1_name, group2_name, column, group_column, "t-test")
                 
             elif test_type == "paired":
-                # Paired t-test
                 if not column2 or column2 not in self._df.columns:
                     return f"❌ For paired t-test, specify a valid column2"
                 
                 if not pd.api.types.is_numeric_dtype(self._df[column2]):
                     return f"❌ Column '{column2}' must be numeric for paired t-test"
                 
-                # Get paired data (remove rows where either value is missing)
                 paired_data = self._df[[column, column2]].dropna()
                 if len(paired_data) < 2:
                     return f"❌ Need at least 2 complete pairs for paired t-test, got {len(paired_data)}"
@@ -212,7 +324,7 @@ class RunTTestTool(BaseTool):
                 differences = data1 - data2
                 
                 t_stat, p_value = stats.ttest_rel(data1, data2)
-                effect_size = differences.mean() / differences.std()  # Cohen's d for paired data
+                effect_size = self._calculate_effect_size("paired", data1, data2)
                 
                 result_lines.extend([
                     f"**Test Type:** Paired t-test",
@@ -232,84 +344,16 @@ class RunTTestTool(BaseTool):
                     f"  • Effect size (Cohen's d): {effect_size:.4f}",
                 ])
                 
-                # Create scatter plot with line of equality
-                fig = go.Figure()
-                fig.add_trace(go.Scatter(
-                    x=data1, y=data2, mode='markers',
-                    name='Data Points', opacity=0.6
-                ))
-                
-                # Add line of equality
-                min_val = min(data1.min(), data2.min())
-                max_val = max(data1.max(), data2.max())
-                fig.add_trace(go.Scatter(
-                    x=[min_val, max_val], y=[min_val, max_val],
-                    mode='lines', name='Line of Equality',
-                    line=dict(dash='dash', color='red')
-                ))
-                
-                fig.update_layout(
-                    title=f"Paired T-Test: {column} vs {column2}",
-                    xaxis_title=column,
-                    yaxis_title=column2,
-                    showlegend=True
-                )
+                fig = self._create_paired_viz(data1, data2, column, column2, "t-test")
                 
             else:
                 return f"❌ Invalid test_type '{test_type}'. Use: 'one_sample', 'two_sample', or 'paired'"
             
-            # Interpret results
-            result_lines.extend([
-                f"",
-                f"🎯 **Statistical Interpretation:**"
-            ])
+            # Add interpretation and assumptions using base class
+            result_lines = self._format_results(result_lines, p_value, effect_size, alpha, "t-test", test_type)
             
-            if p_value < alpha:
-                result_lines.append(f"  • **Significant result** (p < {alpha}): Reject null hypothesis")
-                result_lines.append(f"  • There IS a statistically significant difference")
-            else:
-                result_lines.append(f"  • **Not significant** (p ≥ {alpha}): Fail to reject null hypothesis")
-                result_lines.append(f"  • There is NO statistically significant difference")
-            
-            # Effect size interpretation
-            abs_effect = abs(effect_size)
-            if abs_effect < 0.2:
-                effect_magnitude = "negligible"
-            elif abs_effect < 0.5:
-                effect_magnitude = "small"
-            elif abs_effect < 0.8:
-                effect_magnitude = "medium"
-            else:
-                effect_magnitude = "large"
-            
-            result_lines.extend([
-                f"  • **Effect size:** {effect_magnitude} (|d| = {abs_effect:.3f})",
-                f"",
-                f"⚠️ **Assumptions:**",
-                f"  • Data is approximately normally distributed",
-                f"  • Observations are independent",
-                f"  • Data is measured at interval/ratio level"
-            ])
-            
-            if test_type == "two_sample":
-                result_lines.append(f"  • Unequal variances assumed (Welch's t-test)")
-            
-            # Store chart for display
-            chart_info = {
-                'type': 't_test',
-                'title': f"T-Test Analysis: {column}",
-                'data': None,  # Plotly figure will be created directly
-                'fig': fig,
-                'chart_config': {
-                    'chart_type': 'statistical_test',
-                    'test_type': test_type
-                }
-            }
-            
-            if hasattr(st, 'session_state'):
-                if 'current_response_charts' not in st.session_state:
-                    st.session_state.current_response_charts = []
-                st.session_state.current_response_charts.append(chart_info)
+            # Store chart using base class
+            self._store_chart('t_test', f"T-Test Analysis: {column}", fig, test_type)
             
             return "\n".join(result_lines)
             
@@ -333,46 +377,37 @@ class ZTestInput(BaseModel):
     alpha: float = Field(default=0.05, description="Significance level (default 0.05)")
 
 
-class RunZTestTool(BaseTool):
+class RunZTestTool(BaseHypothesisTestTool):
     name: str = "run_z_test"
     description: str = "Perform z-tests (one-sample, two-sample, or paired) to test hypotheses about means. Uses normal distribution - appropriate for large samples (n≥30) or when population standard deviation is known. Includes visualizations and practical interpretation."
     args_schema: Type[BaseModel] = ZTestInput
-
-    _df: pd.DataFrame = PrivateAttr()
-
-    def __init__(self, df: pd.DataFrame):
-        super().__init__()
-        self._df = df
 
     def _run(self, column: str, test_type: str = "one_sample", null_value: float = 0, 
              group_column: Optional[str] = None, group_values: Optional[List[str]] = None, 
              column2: Optional[str] = None, population_std: Optional[float] = None, 
              alpha: float = 0.05) -> str:
         try:
-            # Validate inputs
-            if column not in self._df.columns:
-                return f"❌ Column '{column}' not found. Available columns: {list(self._df.columns)}"
+            # Validate primary column
+            is_valid, error_msg, data = self._validate_column(column)
+            if not is_valid:
+                return error_msg
             
-            if not pd.api.types.is_numeric_dtype(self._df[column]):
-                return f"❌ Column '{column}' must be numeric for z-test"
-            
-            # Clean data - remove missing values
-            data = self._df[column].dropna()
-            if len(data) == 0:
-                return f"❌ No valid data in column '{column}' after removing missing values"
-            
-            if len(data) < 2:
-                return f"❌ Need at least 2 observations for z-test, got {len(data)}"
-
-            # Check if sample size is appropriate for z-test
+            # Check sample size - convert blocking error to warning
+            warnings = []
+            if len(data) < 10:
+                return f"❌ Sample too small for reliable inference (n < 10). Got n={len(data)}"
             if len(data) < 30 and population_std is None:
-                return f"⚠️ Warning: Z-test is most appropriate for large samples (n≥30) or when population standard deviation is known. Your sample has n={len(data)}. Consider using t-test instead."
-
+                warnings.append(f"⚠️ Small sample size (n={len(data)}) - z-test most appropriate for n≥30 or known population std. Consider t-test instead.")
+            
             result_lines = [f"📊 **Z-Test Analysis: {column}**\n"]
+            
+            # Add warnings if any
+            if warnings:
+                result_lines.extend(warnings)
+                result_lines.append("")
             
             # Perform the appropriate z-test
             if test_type == "one_sample":
-                # One-sample z-test
                 mean_value = data.mean()
                 std_value = data.std()
                 n = len(data)
@@ -390,7 +425,7 @@ class RunZTestTool(BaseTool):
                 z_stat = (mean_value - null_value) / std_error
                 p_value = 2 * (1 - stats.norm.cdf(abs(z_stat)))  # Two-tailed test
                 
-                effect_size = (mean_value - null_value) / std_value  # Cohen's d
+                effect_size = self._calculate_effect_size("one_sample", data, null_value=null_value)
                 
                 result_lines.extend([
                     f"**Test Type:** One-sample z-test",
@@ -411,93 +446,29 @@ class RunZTestTool(BaseTool):
                     f"  • Effect size (Cohen's d): {effect_size:.4f}",
                 ])
                 
-                # Create visualization
-                fig = go.Figure()
-                
-                # Histogram of data
-                fig.add_trace(go.Histogram(
-                    x=data,
-                    name="Data Distribution",
-                    opacity=0.7,
-                    nbinsx=30
-                ))
-                
-                # Add vertical lines for sample mean and null value
-                fig.add_vline(x=mean_value, line_dash="dash", line_color="red", 
-                             annotation_text=f"Sample Mean: {mean_value:.3f}")
-                fig.add_vline(x=null_value, line_dash="solid", line_color="blue", 
-                             annotation_text=f"Null Value: {null_value}")
-                
-                fig.update_layout(
-                    title=f"One-Sample Z-Test: {column}",
-                    xaxis_title=column,
-                    yaxis_title="Frequency",
-                    showlegend=True
-                )
+                fig = self._create_one_sample_viz(data, mean_value, null_value, column, "z-test")
                 
             elif test_type == "two_sample":
-                # Two-sample z-test
-                if not group_column or group_column not in self._df.columns:
-                    return f"❌ For two-sample z-test, specify a valid group_column"
+                is_valid, error_msg, group1_name, group2_name, group1_data, group2_data = self._extract_group_data(column, group_column, group_values)
+                if not is_valid:
+                    return error_msg
                 
-                # Get unique groups from the group column
-                unique_groups = list(self._df[group_column].unique())
-                
-                # If group_values specified, use those; otherwise check for exactly 2 groups
-                if group_values:
-                    if len(group_values) != 2:
-                        return f"❌ For two-sample z-test, group_values must contain exactly 2 values, got {len(group_values)}: {group_values}"
-                    
-                    # Convert group_values to the same type as the data for comparison
-                    try:
-                        # Try to convert group_values to match the data type
-                        data_type = self._df[group_column].dtype
-                        if pd.api.types.is_numeric_dtype(data_type):
-                            # Convert to numeric if the column is numeric
-                            converted_group_values = [pd.to_numeric(gv) for gv in group_values]
-                        else:
-                            # Keep as strings if column is categorical/object
-                            converted_group_values = [str(gv) for gv in group_values]
-                            unique_groups = [str(ug) for ug in unique_groups]
-                    except (ValueError, TypeError):
-                        # If conversion fails, use original values
-                        converted_group_values = group_values
-                    
-                    # Check if specified groups exist
-                    missing_groups = [g for g in converted_group_values if g not in unique_groups]
-                    if missing_groups:
-                        return f"❌ Groups not found in data: {missing_groups}. Available groups: {unique_groups}"
-                    
-                    selected_groups = converted_group_values
-                else:
-                    if len(unique_groups) != 2:
-                        return f"❌ Two-sample z-test requires exactly 2 groups, found {len(unique_groups)}: {unique_groups}. Use group_values parameter to specify which 2 groups to compare."
-                    
-                    selected_groups = unique_groups
-                
-                # Extract data for the selected groups
-                group1_name = selected_groups[0]
-                group2_name = selected_groups[1]
-                group1_data = self._df[self._df[group_column] == group1_name][column].dropna()
-                group2_data = self._df[self._df[group_column] == group2_name][column].dropna()
-                
-                if len(group1_data) < 2 or len(group2_data) < 2:
-                    return f"❌ Each group needs at least 2 observations. Group sizes: {group1_name}={len(group1_data)}, {group2_name}={len(group2_data)}"
-                
-                # Check sample sizes for z-test appropriateness
+                # Check sample sizes - warnings instead of blocking
+                if len(group1_data) < 10 or len(group2_data) < 10:
+                    return f"❌ Sample too small for reliable inference (need n≥10 per group). Got: {group1_name}={len(group1_data)}, {group2_name}={len(group2_data)}"
                 if (len(group1_data) < 30 or len(group2_data) < 30) and population_std is None:
-                    return f"⚠️ Warning: Z-test is most appropriate when both groups have n≥30 or population std is known. Group sizes: {group1_name}={len(group1_data)}, {group2_name}={len(group2_data)}. Consider using t-test instead."
+                    warnings.append(f"⚠️ Small sample sizes ({group1_name}={len(group1_data)}, {group2_name}={len(group2_data)}) - z-test most appropriate when n≥30 per group. Consider t-test.")
+                    result_lines.extend(warnings)
+                    result_lines.append("")
                 
                 mean1, mean2 = group1_data.mean(), group2_data.mean()
                 n1, n2 = len(group1_data), len(group2_data)
                 
                 # Calculate standard error
                 if population_std is not None:
-                    # Use provided population std for both groups
                     std_error = population_std * np.sqrt(1/n1 + 1/n2)
                     std_note = f"Using provided population std: {population_std:.4f}"
                 else:
-                    # Use pooled sample standard deviation as population estimate
                     pooled_var = ((n1-1)*group1_data.var() + (n2-1)*group2_data.var()) / (n1+n2-2)
                     std_error = np.sqrt(pooled_var * (1/n1 + 1/n2))
                     std_note = f"Using pooled sample std as population estimate: {np.sqrt(pooled_var):.4f}"
@@ -505,11 +476,7 @@ class RunZTestTool(BaseTool):
                 z_stat = (mean1 - mean2) / std_error
                 p_value = 2 * (1 - stats.norm.cdf(abs(z_stat)))  # Two-tailed test
                 
-                # Calculate effect size (Cohen's d for two groups)
-                pooled_std = np.sqrt(((len(group1_data) - 1) * group1_data.var() + 
-                                     (len(group2_data) - 1) * group2_data.var()) / 
-                                    (len(group1_data) + len(group2_data) - 2))
-                effect_size = (group1_data.mean() - group2_data.mean()) / pooled_std
+                effect_size = self._calculate_effect_size("two_sample", group1_data, group2_data)
                 
                 result_lines.extend([
                     f"**Test Type:** Two-sample z-test",
@@ -529,27 +496,15 @@ class RunZTestTool(BaseTool):
                     f"  • Effect size (Cohen's d): {effect_size:.4f}",
                 ])
                 
-                # Create box plot comparison
-                fig = go.Figure()
-                fig.add_trace(go.Box(y=group1_data, name=str(group1_name), boxpoints="outliers"))
-                fig.add_trace(go.Box(y=group2_data, name=str(group2_name), boxpoints="outliers"))
-                
-                fig.update_layout(
-                    title=f"Two-Sample Z-Test: {column} by {group_column}",
-                    xaxis_title=group_column,
-                    yaxis_title=column,
-                    showlegend=True
-                )
+                fig = self._create_two_sample_viz(group1_data, group2_data, group1_name, group2_name, column, group_column, "z-test")
                 
             elif test_type == "paired":
-                # Paired z-test
                 if not column2 or column2 not in self._df.columns:
                     return f"❌ For paired z-test, specify a valid column2"
                 
                 if not pd.api.types.is_numeric_dtype(self._df[column2]):
                     return f"❌ Column '{column2}' must be numeric for paired z-test"
                 
-                # Get paired data (remove rows where either value is missing)
                 paired_data = self._df[[column, column2]].dropna()
                 if len(paired_data) < 2:
                     return f"❌ Need at least 2 complete pairs for paired z-test, got {len(paired_data)}"
@@ -559,19 +514,21 @@ class RunZTestTool(BaseTool):
                 differences = data1 - data2
                 n_pairs = len(paired_data)
                 
-                # Check sample size
+                # Check sample size - warning instead of blocking
+                if n_pairs < 10:
+                    return f"❌ Sample too small for reliable inference (need n≥10 pairs). Got n={n_pairs}"
                 if n_pairs < 30 and population_std is None:
-                    return f"⚠️ Warning: Paired z-test is most appropriate with n≥30 pairs or known population std of differences. You have {n_pairs} pairs. Consider using paired t-test instead."
+                    warnings.append(f"⚠️ Small sample size ({n_pairs} pairs) - z-test most appropriate for n≥30. Consider paired t-test.")
+                    result_lines.extend(warnings)
+                    result_lines.append("")
                 
                 mean_diff = differences.mean()
                 
                 # Calculate standard error
                 if population_std is not None:
-                    # Use provided population std of differences
                     std_error = population_std / np.sqrt(n_pairs)
                     std_note = f"Using provided population std of differences: {population_std:.4f}"
                 else:
-                    # Use sample std of differences as population estimate
                     diff_std = differences.std(ddof=0)  # Population std estimate
                     std_error = diff_std / np.sqrt(n_pairs)
                     std_note = f"Using sample std of differences as population estimate: {diff_std:.4f}"
@@ -579,7 +536,7 @@ class RunZTestTool(BaseTool):
                 z_stat = mean_diff / std_error
                 p_value = 2 * (1 - stats.norm.cdf(abs(z_stat)))  # Two-tailed test
                 
-                effect_size = differences.mean() / differences.std()  # Cohen's d for paired data
+                effect_size = self._calculate_effect_size("paired", data1, data2)
                 
                 result_lines.extend([
                     f"**Test Type:** Paired z-test",
@@ -601,85 +558,21 @@ class RunZTestTool(BaseTool):
                     f"  • Effect size (Cohen's d): {effect_size:.4f}",
                 ])
                 
-                # Create scatter plot with line of equality
-                fig = go.Figure()
-                fig.add_trace(go.Scatter(
-                    x=data1, y=data2, mode='markers',
-                    name='Data Points', opacity=0.6
-                ))
-                
-                # Add line of equality
-                min_val = min(data1.min(), data2.min())
-                max_val = max(data1.max(), data2.max())
-                fig.add_trace(go.Scatter(
-                    x=[min_val, max_val], y=[min_val, max_val],
-                    mode='lines', name='Line of Equality',
-                    line=dict(dash='dash', color='red')
-                ))
-                
-                fig.update_layout(
-                    title=f"Paired Z-Test: {column} vs {column2}",
-                    xaxis_title=column,
-                    yaxis_title=column2,
-                    showlegend=True
-                )
+                fig = self._create_paired_viz(data1, data2, column, column2, "z-test")
                 
             else:
                 return f"❌ Invalid test_type '{test_type}'. Use: 'one_sample', 'two_sample', or 'paired'"
             
-            # Interpret results
-            result_lines.extend([
-                f"",
-                f"🎯 **Statistical Interpretation:**"
-            ])
+            # Add interpretation and assumptions using base class
+            result_lines = self._format_results(result_lines, p_value, effect_size, alpha, "z-test", test_type)
             
-            if p_value < alpha:
-                result_lines.append(f"  • **Significant result** (p < {alpha}): Reject null hypothesis")
-                result_lines.append(f"  • There IS a statistically significant difference")
-            else:
-                result_lines.append(f"  • **Not significant** (p ≥ {alpha}): Fail to reject null hypothesis")
-                result_lines.append(f"  • There is NO statistically significant difference")
-            
-            # Effect size interpretation
-            abs_effect = abs(effect_size)
-            if abs_effect < 0.2:
-                effect_magnitude = "negligible"
-            elif abs_effect < 0.5:
-                effect_magnitude = "small"
-            elif abs_effect < 0.8:
-                effect_magnitude = "medium"
-            else:
-                effect_magnitude = "large"
-            
-            result_lines.extend([
-                f"  • **Effect size:** {effect_magnitude} (|d| = {abs_effect:.3f})",
-                f"",
-                f"⚠️ **Assumptions:**",
-                f"  • Data is approximately normally distributed",
-                f"  • Observations are independent",
-                f"  • Data is measured at interval/ratio level",
-                f"  • Large sample size (n≥30) OR population standard deviation is known"
-            ])
-            
-            # Store chart for display
-            chart_info = {
-                'type': 'z_test',
-                'title': f"Z-Test Analysis: {column}",
-                'data': None,  # Plotly figure will be created directly
-                'fig': fig,
-                'chart_config': {
-                    'chart_type': 'statistical_test',
-                    'test_type': test_type
-                }
-            }
-            
-            if hasattr(st, 'session_state'):
-                if 'current_response_charts' not in st.session_state:
-                    st.session_state.current_response_charts = []
-                st.session_state.current_response_charts.append(chart_info)
+            # Store chart using base class
+            self._store_chart('z_test', f"Z-Test Analysis: {column}", fig, test_type)
             
             return "\n".join(result_lines)
             
+        except Exception as e:
+            return f"❌ Error in z-test analysis: {str(e)}"
         except Exception as e:
             return f"❌ Error in z-test analysis: {str(e)}"
 
@@ -810,6 +703,10 @@ class RunChiSquareTestTool(BaseTool):
                 
                 # Determine expected frequencies
                 if expected_frequencies is not None:
+                    # Validate expected frequencies
+                    if any(f <= 0 for f in expected_frequencies):
+                        return "❌ Expected frequencies must all be positive (greater than 0)"
+                    
                     if len(expected_frequencies) != len(observed_values):
                         return f"❌ Expected frequencies length ({len(expected_frequencies)}) must match number of categories ({len(observed_values)})"
                     
@@ -938,7 +835,7 @@ class RunChiSquareTestTool(BaseTool):
                 'type': 'chi_square_test',
                 'title': f"Chi-Square Test: {column1}" + (f" vs {column2}" if test_type == "independence" else ""),
                 'data': None,
-                'fig': fig,
+                'figure': fig,  # Standardized to 'figure' (more descriptive than 'fig')
                 'chart_config': {
                     'chart_type': 'statistical_test',
                     'test_type': test_type
