@@ -39,244 +39,241 @@ class CreateFeatureImportanceChartTool(BaseTool):
             # Get model results
             results = st.session_state.ml_model_results[model_key]
             model_type = results['model_type']
-            coefficients = results['coefficients']
-            target_column = results['target_column']
             
-            # Handle different model types
+            # Route to appropriate handler based on model type
             if model_type == 'logistic_regression':
-                # For logistic regression, we can show either coefficients or odds ratios
-                if show_odds_ratios and 'odds_ratio' in coefficients.columns:
-                    # Sort by absolute coefficient value to get most important features
-                    chart_data = coefficients.sort_values('abs_coefficient', ascending=True).tail(top_n)
-                    
-                    # Create horizontal bar chart showing coefficients (not odds ratios) for better visualization
-                    fig = go.Figure()
-                    
-                    # Color bars based on positive/negative coefficients  
-                    colors = ['green' if x > 0 else 'red' for x in chart_data['coefficient']]
-                    
-                    fig.add_trace(go.Bar(
-                        y=chart_data['feature'],
-                        x=chart_data['coefficient'],  # Use coefficient values so negatives go left
-                        orientation='h',
-                        marker=dict(color=colors, opacity=0.7),
-                        hovertemplate='<b>%{y}</b><br>Coefficient: %{x:.4f}<br>Odds Ratio: %{customdata[0]:.3f}<extra></extra>',
-                        customdata=chart_data[['odds_ratio']].values
-                    ))
-                    
-                    chart_title = title or f"Feature Importance (Odds Ratios): {target_column}"
-                    
-                    # Calculate symmetric range around zero for better visualization
-                    max_abs_coef = chart_data['coefficient'].abs().max()
-                    x_range = [-max_abs_coef * 1.1, max_abs_coef * 1.1]
-                    
-                    fig.update_layout(
-                        title=chart_title,
-                        xaxis_title='Coefficient Value (Log Odds)',
-                        yaxis_title='Features',
-                        hovermode='closest',
-                        xaxis=dict(range=x_range, zeroline=True, zerolinewidth=2, zerolinecolor='black')
-                    )
-                    
-                    # Add vertical line at zero (no effect)
-                    fig.add_vline(x=0, line_dash="solid", line_color="black", line_width=1, opacity=0.8)
-                    
-                    value_column = 'coefficient'
-                    interpretation_type = "odds ratios"
-                    
-                else:
-                    # Show raw coefficients for logistic regression
-                    chart_data = coefficients.sort_values('abs_coefficient', ascending=True).tail(top_n)
-                    
-                    # Create horizontal bar chart
-                    fig = go.Figure()
-                    
-                    # Color bars based on positive/negative coefficients
-                    colors = ['green' if x > 0 else 'red' for x in chart_data['coefficient']]
-                    
-                    fig.add_trace(go.Bar(
-                        y=chart_data['feature'],
-                        x=chart_data['coefficient'],
-                        orientation='h',
-                        marker=dict(color=colors, opacity=0.7),
-                        hovertemplate='<b>%{y}</b><br>Coefficient: %{x:.4f}<br>Odds Ratio: %{customdata[0]:.3f}<extra></extra>',
-                        customdata=chart_data[['odds_ratio']].values if 'odds_ratio' in chart_data.columns else [[0]] * len(chart_data)
-                    ))
-                    
-                    chart_title = title or f"Feature Importance (Coefficients): {target_column}"
-                    
-                    # Calculate symmetric range around zero for better visualization
-                    max_abs_coef = chart_data['coefficient'].abs().max()
-                    x_range = [-max_abs_coef * 1.1, max_abs_coef * 1.1]
-                    
-                    fig.update_layout(
-                        title=chart_title,
-                        xaxis_title='Coefficient Value',
-                        yaxis_title='Features',
-                        hovermode='closest',
-                        xaxis=dict(range=x_range, zeroline=True, zerolinewidth=2, zerolinecolor='black')
-                    )
-                    
-                    # Add vertical line at zero for reference
-                    fig.add_vline(x=0, line_dash="solid", line_color="black", line_width=1, opacity=0.8)
-                    
-                    value_column = 'coefficient'
-                    interpretation_type = "coefficients"
-                    
+                return self._create_logistic_feature_chart(results, top_n, show_odds_ratios, title)
             elif model_type == 'linear_regression':
-                # For linear regression, show coefficients
-                chart_data = coefficients.sort_values('abs_coefficient', ascending=True).tail(top_n)
-                
-                # Create horizontal bar chart
-                fig = go.Figure()
-                
-                # Color bars based on positive/negative coefficients
-                colors = ['green' if x > 0 else 'red' for x in chart_data['coefficient']]
-                
-                # Check if we have confidence intervals
-                has_confidence_intervals = 'conf_int_lower' in chart_data.columns and 'conf_int_upper' in chart_data.columns
-                
-                if has_confidence_intervals:
-                    fig.add_trace(go.Bar(
-                        y=chart_data['feature'],
-                        x=chart_data['coefficient'],
-                        orientation='h',
-                        marker=dict(color=colors, opacity=0.7),
-                        hovertemplate='<b>%{y}</b><br>Coefficient: %{x:.4f}<br>95% CI: [%{customdata[0]:.4f}, %{customdata[1]:.4f}]<extra></extra>',
-                        customdata=chart_data[['conf_int_lower', 'conf_int_upper']].values
-                    ))
-                else:
-                    fig.add_trace(go.Bar(
-                        y=chart_data['feature'],
-                        x=chart_data['coefficient'],
-                        orientation='h',
-                        marker=dict(color=colors, opacity=0.7),
-                        hovertemplate='<b>%{y}</b><br>Coefficient: %{x:.4f}<extra></extra>'
-                    ))
-                
-                chart_title = title or f"Feature Importance: {target_column}"
-                
-                # Calculate symmetric range around zero for better visualization
-                max_abs_coef = chart_data['coefficient'].abs().max()
-                x_range = [-max_abs_coef * 1.1, max_abs_coef * 1.1]
-                
-                fig.update_layout(
-                    title=chart_title,
-                    xaxis_title='Coefficient Value',
-                    yaxis_title='Features',
-                    hovermode='closest',
-                    xaxis=dict(range=x_range, zeroline=True, zerolinewidth=2, zerolinecolor='black')
-                )
-                
-                # Add vertical line at zero for reference
-                fig.add_vline(x=0, line_dash="solid", line_color="black", line_width=1, opacity=0.8)
-                
-                value_column = 'coefficient'
-                interpretation_type = "coefficients"
-                
+                return self._create_linear_feature_chart(results, top_n, title)
             else:
                 return f"❌ Unsupported model type: {model_type}. Supported types: linear_regression, logistic_regression"
             
-            # Store chart data for Streamlit rendering
-            if hasattr(st, 'session_state'):
-                if 'current_response_charts' not in st.session_state:
-                    st.session_state.current_response_charts = []
-                
-                chart_info = {
-                    'type': 'feature_importance_chart',
-                    'title': chart_title,
-                    'figure': fig,
-                    'data': chart_data.to_dict('records') if hasattr(chart_data, 'to_dict') else chart_data,
-                    'target_column': target_column,
-                    'model_type': model_type,
-                    'interpretation_type': interpretation_type,
-                    'top_n': top_n
-                }
-                st.session_state.current_response_charts.append(chart_info)
+        except Exception as e:
+            return f"❌ Error creating feature importance chart: {str(e)}"
+    
+    def _create_logistic_feature_chart(self, results: dict, top_n: int, show_odds_ratios: bool, title: str) -> str:
+        """Create feature importance chart for logistic regression"""
+        coefficients = results['coefficients']
+        target_column = results['target_column']
+        
+        # Determine which values to show
+        if show_odds_ratios and 'odds_ratio' in coefficients.columns:
+            interpretation_type = "odds ratios"
+            chart_title = title or f"Feature Importance (Odds Ratios): {target_column}"
+        else:
+            interpretation_type = "coefficients"
+            chart_title = title or f"Feature Importance (Coefficients): {target_column}"
+        
+        # Sort by absolute coefficient value to get most important features
+        chart_data = coefficients.sort_values('abs_coefficient', ascending=True).tail(top_n)
+        
+        # Create horizontal bar chart showing coefficients
+        fig = go.Figure()
+        
+        # Color bars based on positive/negative coefficients  
+        colors = ['green' if x > 0 else 'red' for x in chart_data['coefficient']]
+        
+        # Build hover template based on available data
+        if 'odds_ratio' in chart_data.columns:
+            hovertemplate = '<b>%{y}</b><br>Coefficient: %{x:.4f}<br>Odds Ratio: %{customdata[0]:.3f}<extra></extra>'
+            customdata = chart_data[['odds_ratio']].values
+        else:
+            hovertemplate = '<b>%{y}</b><br>Coefficient: %{x:.4f}<extra></extra>'
+            customdata = [[0]] * len(chart_data)
+        
+        fig.add_trace(go.Bar(
+            y=chart_data['feature'],
+            x=chart_data['coefficient'],
+            orientation='h',
+            marker=dict(color=colors, opacity=0.7),
+            hovertemplate=hovertemplate,
+            customdata=customdata
+        ))
+        
+        # Calculate symmetric range around zero for better visualization
+        max_abs_coef = chart_data['coefficient'].abs().max()
+        x_range = [-max_abs_coef * 1.1, max_abs_coef * 1.1]
+        
+        fig.update_layout(
+            title=chart_title,
+            xaxis_title='Coefficient Value (Log Odds)',
+            yaxis_title='Features',
+            hovermode='closest',
+            xaxis=dict(range=x_range, zeroline=True, zerolinewidth=2, zerolinecolor='black')
+        )
+        
+        # Add vertical line at zero (no effect)
+        fig.add_vline(x=0, line_dash="solid", line_color="black", line_width=1, opacity=0.8)
+        
+        # Store chart for rendering
+        self._store_chart(fig, chart_title, chart_data, target_column, 'logistic_regression', interpretation_type, top_n)
+        
+        # Generate interpretation
+        return self._generate_logistic_interpretation(chart_data, target_column, chart_title, interpretation_type, show_odds_ratios, coefficients)
+    
+    def _create_linear_feature_chart(self, results: dict, top_n: int, title: str) -> str:
+        """Create feature importance chart for linear regression"""
+        coefficients = results['coefficients']
+        target_column = results['target_column']
+        
+        chart_title = title or f"Feature Importance: {target_column}"
+        
+        # Sort by absolute coefficient value to get most important features
+        chart_data = coefficients.sort_values('abs_coefficient', ascending=True).tail(top_n)
+        
+        # Create horizontal bar chart
+        fig = go.Figure()
+        
+        # Color bars based on positive/negative coefficients
+        colors = ['green' if x > 0 else 'red' for x in chart_data['coefficient']]
+        
+        # Check if we have confidence intervals
+        has_confidence_intervals = 'conf_int_lower' in chart_data.columns and 'conf_int_upper' in chart_data.columns
+        
+        if has_confidence_intervals:
+            fig.add_trace(go.Bar(
+                y=chart_data['feature'],
+                x=chart_data['coefficient'],
+                orientation='h',
+                marker=dict(color=colors, opacity=0.7),
+                hovertemplate='<b>%{y}</b><br>Coefficient: %{x:.4f}<br>95% CI: [%{customdata[0]:.4f}, %{customdata[1]:.4f}]<extra></extra>',
+                customdata=chart_data[['conf_int_lower', 'conf_int_upper']].values
+            ))
+        else:
+            fig.add_trace(go.Bar(
+                y=chart_data['feature'],
+                x=chart_data['coefficient'],
+                orientation='h',
+                marker=dict(color=colors, opacity=0.7),
+                hovertemplate='<b>%{y}</b><br>Coefficient: %{x:.4f}<extra></extra>'
+            ))
+        
+        # Calculate symmetric range around zero for better visualization
+        max_abs_coef = chart_data['coefficient'].abs().max()
+        x_range = [-max_abs_coef * 1.1, max_abs_coef * 1.1]
+        
+        fig.update_layout(
+            title=chart_title,
+            xaxis_title='Coefficient Value',
+            yaxis_title='Features',
+            hovermode='closest',
+            xaxis=dict(range=x_range, zeroline=True, zerolinewidth=2, zerolinecolor='black')
+        )
+        
+        # Add vertical line at zero for reference
+        fig.add_vline(x=0, line_dash="solid", line_color="black", line_width=1, opacity=0.8)
+        
+        # Store chart for rendering
+        self._store_chart(fig, chart_title, chart_data, target_column, 'linear_regression', 'coefficients', top_n)
+        
+        # Generate interpretation
+        return self._generate_linear_interpretation(chart_data, target_column, chart_title, coefficients)
+    
+    def _store_chart(self, fig, chart_title: str, chart_data, target_column: str, model_type: str, interpretation_type: str, top_n: int):
+        """Store chart data for Streamlit rendering"""
+        if hasattr(st, 'session_state'):
+            if 'current_response_charts' not in st.session_state:
+                st.session_state.current_response_charts = []
             
-            # Create more actionable interpretation
-            top_features = chart_data.tail(3)  # Most important 3
-            feature_interpretation = ""
-            recommendations = ""
+            chart_info = {
+                'type': 'feature_importance_chart',
+                'title': chart_title,
+                'figure': fig,
+                'data': chart_data.to_dict('records') if hasattr(chart_data, 'to_dict') else chart_data,
+                'target_column': target_column,
+                'model_type': model_type,
+                'interpretation_type': interpretation_type,
+                'top_n': top_n
+            }
+            st.session_state.current_response_charts.append(chart_info)
+    
+    def _generate_logistic_interpretation(self, chart_data, target_column: str, chart_title: str, interpretation_type: str, show_odds_ratios: bool, coefficients) -> str:
+        """Generate interpretation text for logistic regression chart"""
+        top_features = chart_data.tail(3)  # Most important 3
+        feature_interpretation = ""
+        recommendations = ""
+        
+        if show_odds_ratios and 'odds_ratio' in coefficients.columns:
+            # Get the most impactful feature for recommendations
+            most_impactful = chart_data.tail(1).iloc[0]
+            most_impactful_odds = most_impactful['odds_ratio']
             
-            if model_type == 'logistic_regression' and show_odds_ratios and 'odds_ratio' in coefficients.columns:
-                # Get the most impactful feature for recommendations
-                most_impactful = chart_data.tail(1).iloc[0]
-                most_impactful_odds = most_impactful['odds_ratio']
-                
-                for i, (_, row) in enumerate(top_features.iterrows(), 1):
-                    odds_ratio = row['odds_ratio']
-                    if odds_ratio > 1:
-                        effect = f"increases odds by {((odds_ratio - 1) * 100):.1f}%"
-                        action = "increase" if odds_ratio > 1.2 else "consider increasing"
-                    else:
-                        effect = f"decreases odds by {((1 - odds_ratio) * 100):.1f}%"
-                        action = "decrease" if odds_ratio < 0.8 else "consider decreasing"
-                    
-                    feature_interpretation += f"  • **{row['feature']}**: 1 unit increase {effect} (OR: {odds_ratio:.3f})\n"
-                
-                # Add specific recommendation
-                if most_impactful_odds > 1.5:
-                    recommendations = f"\n🎯 **Primary Recommendation**: Focus on maximizing {most_impactful['feature']} - it has the strongest positive impact (OR: {most_impactful_odds:.3f})."
-                elif most_impactful_odds < 0.67:
-                    recommendations = f"\n🎯 **Primary Recommendation**: Focus on minimizing {most_impactful['feature']} - it has the strongest negative impact (OR: {most_impactful_odds:.3f})."
+            for i, (_, row) in enumerate(top_features.iterrows(), 1):
+                odds_ratio = row['odds_ratio']
+                if odds_ratio > 1:
+                    effect = f"increases odds by {((odds_ratio - 1) * 100):.1f}%"
                 else:
-                    recommendations = f"\n🎯 **Primary Recommendation**: {most_impactful['feature']} shows the strongest effect. Consider strategic adjustments."
-                    
+                    effect = f"decreases odds by {((1 - odds_ratio) * 100):.1f}%"
+                
+                feature_interpretation += f"  • **{row['feature']}**: 1 unit increase {effect} (OR: {odds_ratio:.3f})\n"
+            
+            # Add specific recommendation
+            if most_impactful_odds > 1.5:
+                recommendations = f"\n🎯 **Primary Recommendation**: Focus on maximizing {most_impactful['feature']} - it has the strongest positive impact (OR: {most_impactful_odds:.3f})."
+            elif most_impactful_odds < 0.67:
+                recommendations = f"\n🎯 **Primary Recommendation**: Focus on minimizing {most_impactful['feature']} - it has the strongest negative impact (OR: {most_impactful_odds:.3f})."
             else:
-                # For linear regression or coefficient view
-                most_impactful = chart_data.tail(1).iloc[0]
-                most_impactful_coef = most_impactful['coefficient']
-                
-                for _, row in top_features.iterrows():
-                    direction = "increases" if row['coefficient'] > 0 else "decreases"
-                    significance = ""
-                    if 'significant' in row and row['significant']:
-                        significance = " (✓ Significant)"
-                    elif 'significant' in row:
-                        significance = " (Not significant)"
-                    
-                    feature_interpretation += f"  • **{row['feature']}**: 1 unit increase {direction} {target_column} by {abs(row['coefficient']):.3f} units{significance}\n"
-                
-                # Add specific recommendation with coefficient comparison
-                if len(chart_data) > 1:
-                    second_most = chart_data.tail(2).iloc[0]
-                    ratio = abs(most_impactful_coef) / abs(second_most['coefficient'])
-                    action = "increase" if most_impactful_coef > 0 else "decrease"
-                    
-                    recommendations = f"\n🎯 **Primary Recommendation**: Prioritize {most_impactful['feature']} - it has {ratio:.1f}x more impact than {second_most['feature']}. Focus on {action}ing {most_impactful['feature']} for maximum {target_column} improvement."
-                else:
-                    action = "increase" if most_impactful_coef > 0 else "decrease"
-                    recommendations = f"\n🎯 **Primary Recommendation**: Focus on {action}ing {most_impactful['feature']} for maximum {target_column} impact."
-            
-            chart_type_desc = "Odds Ratios" if (model_type == 'logistic_regression' and show_odds_ratios) else "Coefficients"
-            
-            summary = f"""📊 {chart_title}
+                recommendations = f"\n🎯 **Primary Recommendation**: {most_impactful['feature']} shows the strongest effect. Consider strategic adjustments."
+        
+        summary = f"""📊 {chart_title}
 
-🎯 Created feature importance chart showing top {min(top_n, len(coefficients))} features using {interpretation_type}.
+🎯 Created feature importance chart showing top {min(len(chart_data), len(coefficients))} features using {interpretation_type}.
 
 🔍 Key Feature Effects:
 {feature_interpretation.strip()}{recommendations}
 
 💡 Chart Interpretation:
-"""
-            
-            if model_type == 'logistic_regression' and show_odds_ratios:
-                summary += """  • Green bars = increases odds of positive outcome
+  • Green bars = increases odds of positive outcome
   • Red bars = decreases odds of positive outcome
   • Values > 1 = increases probability, < 1 = decreases probability
   • Distance from 1 indicates strength of effect"""
-            else:
-                summary += f"""  • Green bars = positive effect on {target_column}
-  • Red bars = negative effect on {target_column}
-  • Longer bars = stronger effect"""
-                if model_type == 'linear_regression':
-                    summary += "\n  • Focus on significant features (✓) for decisions"
-
-            return summary
+        
+        return summary
+    
+    def _generate_linear_interpretation(self, chart_data, target_column: str, chart_title: str, coefficients) -> str:
+        """Generate interpretation text for linear regression chart"""
+        top_features = chart_data.tail(3)  # Most important 3
+        feature_interpretation = ""
+        
+        most_impactful = chart_data.tail(1).iloc[0]
+        most_impactful_coef = most_impactful['coefficient']
+        
+        for _, row in top_features.iterrows():
+            direction = "increases" if row['coefficient'] > 0 else "decreases"
+            significance = ""
+            if 'significant' in row and row['significant']:
+                significance = " (✓ Significant)"
+            elif 'significant' in row:
+                significance = " (Not significant)"
             
-        except Exception as e:
-            return f"❌ Error creating feature importance chart: {str(e)}"
+            feature_interpretation += f"  • **{row['feature']}**: 1 unit increase {direction} {target_column} by {abs(row['coefficient']):.3f} units{significance}\n"
+        
+        # Add specific recommendation with coefficient comparison
+        recommendations = ""
+        if len(chart_data) > 1:
+            second_most = chart_data.tail(2).iloc[0]
+            ratio = abs(most_impactful_coef) / abs(second_most['coefficient'])
+            action = "increase" if most_impactful_coef > 0 else "decrease"
+            
+            recommendations = f"\n🎯 **Primary Recommendation**: Prioritize {most_impactful['feature']} - it has {ratio:.1f}x more impact than {second_most['feature']}. Focus on {action}ing {most_impactful['feature']} for maximum {target_column} improvement."
+        else:
+            action = "increase" if most_impactful_coef > 0 else "decrease"
+            recommendations = f"\n🎯 **Primary Recommendation**: Focus on {action}ing {most_impactful['feature']} for maximum {target_column} impact."
+        
+        summary = f"""📊 {chart_title}
+
+🎯 Created feature importance chart showing top {min(len(chart_data), len(coefficients))} features using coefficients.
+
+🔍 Key Feature Effects:
+{feature_interpretation.strip()}{recommendations}
+
+💡 Chart Interpretation:
+  • Green bars = positive effect on {target_column}
+  • Red bars = negative effect on {target_column}
+  • Longer bars = stronger effect
+  • Focus on significant features (✓) for decisions"""
+        
+        return summary
 
     def _arun(self, model_key: str = "logistic_regression", top_n: int = 10, show_odds_ratios: bool = True, title: str = ""):
         raise NotImplementedError("Async not supported")
@@ -314,12 +311,28 @@ class CreateROCCurveTool(BaseTool):
             if 'y_train_proba' not in results:
                 return f"❌ Model '{model_key}' does not appear to be a classification model. ROC curves require probability predictions."
             
-            # Extract data
+            # Check if this is binary classification
+            is_binary = results.get('is_binary', False)
+            if not is_binary:
+                n_classes = len(np.unique(results['y_train']))
+                return f"❌ ROC curves are only available for binary classification. This is a multiclass problem with {n_classes} classes. Use confusion matrix or other multiclass metrics instead."
+            
+            # Extract data - for binary classification, get positive class probabilities
             y_train = results['y_train']
-            y_train_proba = results['y_train_proba']
             y_test = results['y_test']
-            y_test_proba = results['y_test_proba']
             target_column = results['target_column']
+            
+            # Extract probability of positive class (column 1) for binary classification
+            y_train_proba_full = results['y_train_proba']
+            y_test_proba_full = results['y_test_proba']
+            
+            # Handle both 1D arrays (already positive class) and 2D arrays (need to extract column 1)
+            if y_train_proba_full.ndim == 2:
+                y_train_proba = y_train_proba_full[:, 1]  # Positive class probabilities
+                y_test_proba = y_test_proba_full[:, 1]
+            else:
+                y_train_proba = y_train_proba_full
+                y_test_proba = y_test_proba_full
             
             # Import sklearn metrics
             from sklearn.metrics import roc_curve, auc
@@ -464,12 +477,28 @@ class CreatePrecisionRecallCurveTool(BaseTool):
             if 'y_train_proba' not in results:
                 return f"❌ Model '{model_key}' does not appear to be a classification model. PR curves require probability predictions."
             
-            # Extract data
+            # Check if this is binary classification
+            is_binary = results.get('is_binary', False)
+            if not is_binary:
+                n_classes = len(np.unique(results['y_train']))
+                return f"❌ Precision-Recall curves are only available for binary classification. This is a multiclass problem with {n_classes} classes. Use confusion matrix or per-class PR curves instead."
+            
+            # Extract data - for binary classification, get positive class probabilities
             y_train = results['y_train']
-            y_train_proba = results['y_train_proba']
             y_test = results['y_test']
-            y_test_proba = results['y_test_proba']
             target_column = results['target_column']
+            
+            # Extract probability of positive class (column 1) for binary classification
+            y_train_proba_full = results['y_train_proba']
+            y_test_proba_full = results['y_test_proba']
+            
+            # Handle both 1D arrays (already positive class) and 2D arrays (need to extract column 1)
+            if y_train_proba_full.ndim == 2:
+                y_train_proba = y_train_proba_full[:, 1]  # Positive class probabilities
+                y_test_proba = y_test_proba_full[:, 1]
+            else:
+                y_train_proba = y_train_proba_full
+                y_test_proba = y_test_proba_full
             
             # Import sklearn metrics
             from sklearn.metrics import precision_recall_curve, average_precision_score

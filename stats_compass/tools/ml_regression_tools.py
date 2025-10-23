@@ -5,7 +5,7 @@ This module provides comprehensive linear and logistic regression capabilities
 with PM-friendly interpretations and professional visualizations.
 """
 
-
+import time
 import pandas as pd
 import numpy as np
 import plotly.express as px
@@ -13,7 +13,7 @@ import plotly.graph_objects as go
 from sklearn.linear_model import LinearRegression, LogisticRegression
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error, accuracy_score, roc_auc_score
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import StandardScaler, LabelEncoder
 from statsmodels.tsa.arima.model import ARIMA
 from statsmodels.tsa.stattools import adfuller
 from statsmodels.stats.diagnostic import acorr_ljungbox
@@ -59,6 +59,59 @@ class RunLinearRegressionTool(BaseTool):
             return st.session_state.df
         return self._df
 
+    def _prepare_regression_data(
+        self,
+        df: pd.DataFrame,
+        target_column: str,
+        feature_columns: Optional[List[str]],
+        allow_non_numeric_target: bool = False
+    ) -> tuple:
+        """
+        Shared helper for preparing and validating regression data.
+        
+        Args:
+            df: Input dataframe
+            target_column: Name of target column
+            feature_columns: List of feature columns (None = auto-select numeric)
+            allow_non_numeric_target: Whether to allow non-numeric targets (for classification)
+            
+        Returns:
+            Tuple of (X, y, feature_columns, error_message)
+            If error occurs, returns (None, None, None, error_string)
+        """
+        # Validate target column exists
+        if target_column not in df.columns:
+            return None, None, None, f"❌ Target column '{target_column}' not found in dataset. Available columns: {list(df.columns)}"
+        
+        # Validate target is numeric (for regression only)
+        if not allow_non_numeric_target and not pd.api.types.is_numeric_dtype(df[target_column]):
+            return None, None, None, f"❌ Target column '{target_column}' must be numeric for regression"
+        
+        # Auto-select features if not provided
+        if feature_columns is None:
+            numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+            feature_columns = [col for col in numeric_cols if col != target_column]
+        
+        if not feature_columns:
+            return None, None, None, "❌ No numeric feature columns available for regression"
+        
+        # Check for missing feature columns
+        missing_cols = [col for col in feature_columns if col not in df.columns]
+        if missing_cols:
+            return None, None, None, f"❌ Feature columns not found: {missing_cols}"
+        
+        # Extract features and target
+        X = df[feature_columns].copy()
+        y = df[target_column].copy()
+        
+        # Remove rows with missing values
+        missing_mask = X.isnull().any(axis=1) | y.isnull()
+        if missing_mask.sum() > 0:
+            X = X[~missing_mask]
+            y = y[~missing_mask]
+        
+        return X, y, feature_columns, None
+
     def _run(self, target_column: str, 
              feature_columns: Optional[List[str]] = None,
              test_size: float = 0.2,
@@ -78,50 +131,29 @@ class RunLinearRegressionTool(BaseTool):
             String containing formatted results for display
         """
         try:
-            # Get the most current dataframe (includes any encoded columns)
+            # Get the most current dataframe
             df = self._get_current_df()
             
-            # Input validation
-            if target_column not in df.columns:
-                return f"❌ Target column '{target_column}' not found in dataset. Available columns: {list(df.columns)}"
-                
-            if not pd.api.types.is_numeric_dtype(df[target_column]):
-                return f"❌ Target column '{target_column}' must be numeric for regression"
-                
+            # Validate test_size
             if test_size < 0 or test_size > 0.5:
                 return f"❌ test_size must be between 0 and 0.5"
-                
-            # Prepare features
-            if feature_columns is None:
-                # Use all numeric columns except target
-                numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
-                feature_columns = [col for col in numeric_cols if col != target_column]
-                
-            if not feature_columns:
-                return "❌ No numeric feature columns available for regression"
-                
-            # Check for missing feature columns
-            missing_cols = [col for col in feature_columns if col not in df.columns]
-            if missing_cols:
-                return f"❌ Feature columns not found: {missing_cols}"
-                
-            # Prepare data
-            X = df[feature_columns].copy()
-            y = df[target_column].copy()
             
-            # Remove rows with missing values
-            missing_mask = X.isnull().any(axis=1) | y.isnull()
-            if missing_mask.sum() > 0:
-                X = X[~missing_mask]
-                y = y[~missing_mask]
-                missing_count = missing_mask.sum()
-                
-            # Check if we have enough data
-            if len(X) < 10:
-                return "❌ Insufficient data for regression analysis (need at least 10 complete rows)"
-                
-            if len(X) < len(feature_columns) * 5:
-                return f"⚠️ Warning: Limited data: {len(X)} rows for {len(feature_columns)} features. Consider using fewer features."
+            # Prepare and validate data using shared helper
+            X, y, feature_columns, error = self._prepare_regression_data(
+                df, target_column, feature_columns, allow_non_numeric_target=False
+            )
+            if error:
+                return error
+            
+            # Track missing value removal for reporting
+            original_length = len(df)
+            missing_count = original_length - len(X)
+            missing_mask = pd.Series([True] * missing_count + [False] * len(X))
+            
+            # Check if we have enough data (need at least 10x the number of features)
+            min_required_samples = max(20, len(feature_columns) * 10)
+            if len(X) < min_required_samples:
+                return f"❌ Insufficient data for reliable regression. Need at least {min_required_samples} rows ({len(feature_columns)} features × 10), got {len(X)}. Consider using fewer features."
                 
             # Split data
             if test_size > 0:
@@ -192,8 +224,11 @@ class RunLinearRegressionTool(BaseTool):
                 if 'ml_model_results' not in st.session_state:
                     st.session_state.ml_model_results = {}
                 
+                # Create unique key to avoid overwriting previous results
+                model_key = f"linear_regression_{target_column}_{int(time.time())}"
+                
                 # Store results for evaluation and chart tools to access
-                st.session_state.ml_model_results['linear_regression'] = {
+                st.session_state.ml_model_results[model_key] = {
                     'model_type': 'linear_regression',
                     'model': model,
                     'scaler': scaler,
@@ -213,9 +248,13 @@ class RunLinearRegressionTool(BaseTool):
                     'test_rmse': test_rmse,
                     'standardized': standardize_features,
                 }
+                
+                # Also store as 'linear_regression' for backwards compatibility
+                st.session_state.ml_model_results['linear_regression'] = st.session_state.ml_model_results[model_key]
             
             # Format results as string for display
             result_lines = [f"📊 **Linear Regression Analysis: {target_column}**\n"]
+            result_lines.append(f"🔑 Model Key: `{model_key}`\n")
             
             # Model summary
             result_lines.extend([
@@ -365,14 +404,13 @@ class RunLogisticRegressionTool(BaseTool):
             String containing formatted results for display
         """
         try:
-            # Get the most current dataframe (includes any encoded columns)
+            # Get the most current dataframe
             df = self._get_current_df()
             
-            # Input validation
-            if target_column not in df.columns:
-                return {"error": f"Target column '{target_column}' not found in dataset"}
-            
             # Check target variable and determine classification type
+            if target_column not in df.columns:
+                return f"❌ Target column '{target_column}' not found in dataset"
+            
             unique_values = df[target_column].dropna().unique()
             n_classes = len(unique_values)
             
@@ -383,51 +421,28 @@ class RunLogisticRegressionTool(BaseTool):
             is_binary = n_classes == 2
             is_multiclass = n_classes > 2
             
-            # Prepare features first
-            if feature_columns is None:
-                numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
-                feature_columns = [col for col in numeric_cols if col != target_column]
-                
-            if not feature_columns:
-                return {"error": "No numeric feature columns available for logistic regression"}
-                
-            missing_cols = [col for col in feature_columns if col not in df.columns]
-            if missing_cols:
-                return {"error": f"Feature columns not found: {missing_cols}"}
-                
-            X = df[feature_columns].copy()
-            y_original = df[target_column].copy()
+            # Prepare and validate data using shared helper
+            X, y_original, feature_columns, error = self._prepare_regression_data(
+                df, target_column, feature_columns, allow_non_numeric_target=True
+            )
+            if error:
+                return error
             
+            # Use LabelEncoder for all cases - handles strings, booleans, floats robustly
+            label_encoder = LabelEncoder()
+            y = label_encoder.fit_transform(y_original)
             
-            # Now encode the clean target variable once
-            if is_binary:
-                # Convert binary target to 0/1 if needed
-                if set(unique_values) == {True, False}:
-                    y = y_original.astype(int)
-                elif set(unique_values) == {0, 1}:
-                    y = y_original
-                else:
-                    # Map to 0/1 for binary case
-                    y = (y_original == unique_values[1]).astype(int)
-            else:
-                # For multiclass, use label encoding to ensure integer labels
-                from sklearn.preprocessing import LabelEncoder
-                label_encoder = LabelEncoder()
-                y = label_encoder.fit_transform(y_original)
-                # Store the mapping for interpretation
-                class_mapping = dict(zip(label_encoder.classes_, range(len(label_encoder.classes_))))
-                
-            # Check data sufficiency
-            min_samples_per_class = 10 if is_binary else 5
-            if len(X) < max(20, n_classes * min_samples_per_class):
-                return f"❌ Insufficient data for logistic regression. Need at least {max(20, n_classes * min_samples_per_class)} complete rows for {n_classes} classes"
+            # Store the mapping for interpretation
+            class_mapping = dict(zip(label_encoder.classes_, range(len(label_encoder.classes_))))
+            
+            # Check data sufficiency (need at least 10 samples per class for reliable modeling)
+            min_samples_per_class = 10
+            min_required_samples = max(30, n_classes * min_samples_per_class)
+            if len(X) < min_required_samples:
+                return f"❌ Insufficient data for reliable logistic regression. Need at least {min_required_samples} complete rows ({n_classes} classes × {min_samples_per_class} samples/class), got {len(X)}"
                 
             # Check class balance
-            if is_binary:
-                class_counts = pd.Series(y).value_counts()
-            else:
-                class_counts = pd.Series(y).value_counts()
-            
+            class_counts = pd.Series(y).value_counts()
             minority_class_pct = class_counts.min() / len(y) * 100
             
             if minority_class_pct < 5:
@@ -519,8 +534,11 @@ class RunLogisticRegressionTool(BaseTool):
                 if 'ml_model_results' not in st.session_state:
                     st.session_state.ml_model_results = {}
                 
+                # Create unique key to avoid overwriting previous results
+                model_key = f"logistic_regression_{target_column}_{int(time.time())}"
+                
                 # Store results for evaluation and chart tools to access
-                st.session_state.ml_model_results['logistic_regression'] = {
+                st.session_state.ml_model_results[model_key] = {
                     'model_type': 'logistic_regression',
                     'model': model,
                     'scaler': scaler,
@@ -542,12 +560,16 @@ class RunLogisticRegressionTool(BaseTool):
                     'is_multiclass': is_multiclass,
                     'n_classes': n_classes,
                     'multi_class_strategy': effective_multi_class,
-                    'class_mapping': class_mapping if is_multiclass else None
+                    'class_mapping': class_mapping  # Always store mapping now
                 }
+                
+                # Also store as 'logistic_regression' for backwards compatibility
+                st.session_state.ml_model_results['logistic_regression'] = st.session_state.ml_model_results[model_key]
             
             # Format results as string for display
             classification_type = "Binary" if is_binary else f"Multiclass ({n_classes} classes)"
             result_lines = [f"📊 **{classification_type} Logistic Regression Analysis: {target_column}**\n"]
+            result_lines.append(f"🔑 Model Key: `{model_key}`\n")
             
             # Model summary
             if is_binary:
@@ -1015,10 +1037,10 @@ class RunARIMATool(BaseTool):
             df_work = df[[time_column, value_column]].copy()
             df_work = df_work.dropna()
             
-            if len(df_work) < 10:
-                return f"❌ Insufficient data for ARIMA analysis. Need at least 10 observations, got {len(df_work)}"
+            if len(df_work) < 30:
+                return f"❌ Insufficient data for ARIMA analysis. Need at least 30 observations for reliable modeling, got {len(df_work)}"
             
-            # Convert time column to datetime and sort
+            # Convert time column to datetime and sort (IMPORTANT: sorting ensures frequency calculation is correct)
             try:
                 df_work[time_column] = pd.to_datetime(df_work[time_column])
             except:
@@ -1113,7 +1135,8 @@ class RunARIMATool(BaseTool):
                 if 'arima_results' not in st.session_state:
                     st.session_state.arima_results = {}
                 
-                arima_key = f"arima_{value_column}"
+                # Create unique key to avoid overwriting previous results
+                arima_key = f"arima_{value_column}_{int(time.time())}"
                 
                 # Create time series with proper datetime index
                 time_series_with_index = pd.Series(time_series, index=df_work[time_column])
@@ -1137,6 +1160,9 @@ class RunARIMATool(BaseTool):
                     'adf_pvalue': adf_test[1],
                     'slice_info': slice_info
                 }
+                
+                # Also store with simple key for backwards compatibility
+                st.session_state.arima_results[f"arima_{value_column}"] = st.session_state.arima_results[arima_key]
             
             # Calculate performance metrics
             mse = np.mean(residuals**2)
@@ -1157,6 +1183,7 @@ class RunARIMATool(BaseTool):
             # Generate summary
             result_lines = [
                 f"🔮 **ARIMA({p},{d},{q}) Time Series Analysis: {value_column}**",
+                f"🔑 Model Key: `{arima_key}`",
                 f"",
                 f"📊 **Model Performance:**",
                 f"  • AIC (Akaike Information Criterion): {fitted_model.aic:.2f}",
