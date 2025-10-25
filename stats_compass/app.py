@@ -36,7 +36,7 @@ from config import (
 )
 
 # ---- Local modules ----
-from utils.data_loading import process_uploaded_file
+from utils.session import initialize_session_state
 from utils.visualization import display_single_chart
 from utils.token_tracking import track_usage, update_session_usage
 from utils.agent_transcript import (
@@ -45,6 +45,10 @@ from utils.agent_transcript import (
 )
 from planner_mcp import run_mcp_planner
 from api_key_auth import check_api_key, get_user_api_key
+
+# ---------- Components ----------
+from components.sidebar import render_sidebar
+from components.file_uploader import render_file_uploader
 
 # ---------- Tabs ----------
 from tabs.chat_tab import render_chat_tab
@@ -166,6 +170,11 @@ def process_user_query(query: str, df: pd.DataFrame) -> None:
         # Display the actual response
         st.markdown(final_text)
 
+        # Display intermediate steps immediately
+        if isinstance(result, dict) and result.get("intermediate_steps"):
+            current_msg_index = len(st.session_state.chat_history)
+            render_intermediate_steps(result["intermediate_steps"], current_msg_index)
+
         # Display any charts that were created during this response
         current_charts = []
         if hasattr(st.session_state, 'current_response_charts') and st.session_state.current_response_charts:
@@ -208,44 +217,18 @@ def process_user_query(query: str, df: pd.DataFrame) -> None:
 if not check_api_key():
     st.stop()
 
+# Initialize all session state variables
+initialize_session_state()
+
 # Render sidebar (API key, usage, dataset info)
-from components.sidebar import render_sidebar
 render_sidebar()
 
 st.title("🧭 Stats Compass")
 st.subheader("Turn your raw datasets into structured insights instantly.")
 
-# ---------- Session State ----------
-if "df" not in st.session_state:
-    st.session_state.df = None
-
-if "chat_history" not in st.session_state:
-    # store as simple dict messages for Streamlit chat
-    st.session_state.chat_history = []  # [{"role": "user"/"assistant", "content": "..."}]
-
-if "chart_data" not in st.session_state:
-    st.session_state.chart_data = []
-if "current_response_charts" not in st.session_state:
-    st.session_state.current_response_charts = []
-
 # ---------- File Uploader ----------
-# Show in main area when no dataset loaded, move to sidebar when dataset loaded
-if "df" not in st.session_state or st.session_state.df is None:
-    # Main area file uploader when no dataset
-    uploaded_file = st.file_uploader("Upload your dataset (CSV/XLSX)", type=["csv", "xlsx", "xls"])
-    
-    # Process the uploaded file
-    if process_uploaded_file(uploaded_file):
-        with st.sidebar:
-            st.success(f"✅ Loaded {st.session_state.df.shape[0]:,} rows × {st.session_state.df.shape[1]:,} columns")
-            mem_mb = st.session_state.df.memory_usage(deep=True).sum() / (1024**2)
-            st.caption(f"Approx. memory usage: {mem_mb:.2f} MB")
-            with st.expander("📊Dataset preview", expanded=False):
-                st.dataframe(st.session_state.df.head(), use_container_width=True)
-            st.rerun()
-else:
-    uploaded_file = None
-    # Dataset sidebar content is now handled by render_sidebar()
+# Main area uploader when no dataset, sidebar uploader when dataset exists
+render_file_uploader(location="main")
 
 # Guard
 if not hasattr(st.session_state, 'df') or st.session_state.df is None:

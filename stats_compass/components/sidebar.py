@@ -16,8 +16,8 @@ from config import RECENT_USAGE_DISPLAY_COUNT
 from api_key_auth import render_sidebar_api_key_widget
 from utils.token_tracking import get_usage_summary, check_usage_limits
 from utils.export_utils import render_session_summary, render_export_buttons
-from utils.data_loading import process_uploaded_file
 from planner_mcp import generate_dataset_context
+from components.file_uploader import render_file_uploader
 
 
 def render_api_key_section() -> None:
@@ -113,27 +113,8 @@ def render_dataset_section() -> None:
         st.code(context.strip(), language=None)
         st.info("💡 I have immediate knowledge of all these columns and can suggest analysis without needing to explore first!")
 
-    # File uploader in sidebar when dataset is loaded (also collapsible)
-    with st.expander("📁 Change Dataset", expanded=False):
-        sidebar_uploaded_file = st.file_uploader(
-            "Upload a different dataset",
-            type=["csv", "xlsx", "xls"],
-            help="Replace current dataset with a new file",
-            key="sidebar_uploader"
-        )
-
-        filename = st.session_state.get('uploaded_filename', 'Unknown file')
-        st.success(f"📊 **Current Dataset**")
-        st.markdown(f"**📁 {filename}**")
-        st.caption(f"{st.session_state.df.shape[0]:,} rows × {st.session_state.df.shape[1]:,} columns")
-        mem_mb = st.session_state.df.memory_usage(deep=True).sum() / (1024**2)
-        st.caption(f"Memory: {mem_mb:.2f} MB")
-        
-        # Process sidebar file upload using the shared function
-        if process_uploaded_file(sidebar_uploaded_file, clear_history=True):
-            st.success(f"✅ New dataset loaded: {st.session_state.df.shape[0]:,} rows × {st.session_state.df.shape[1]:,} columns")
-            # Force refresh to update dataset context
-            st.rerun()
+    # File uploader in sidebar when dataset is loaded
+    render_file_uploader(location="sidebar")
 
 
 def render_sidebar() -> None:

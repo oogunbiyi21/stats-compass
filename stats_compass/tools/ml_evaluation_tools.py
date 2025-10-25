@@ -111,6 +111,7 @@ class EvaluateRegressionModelTool(BaseTool):
         metrics['performance'] = {
             'overfitting_risk': abs(metrics['train']['r2'] - metrics['test']['r2']),
             'quality': self._assess_model_quality(metrics['train']['r2']),
+            'generalization': self._assess_regression_generalization(metrics['train']['r2'], metrics['test']['r2'])
         }
         
         # Cross-validation equivalent (using train-test difference as proxy)
@@ -224,6 +225,18 @@ class EvaluateRegressionModelTool(BaseTool):
         else:
             return "Poor"
     
+    def _assess_regression_generalization(self, train_r2: float, test_r2: float) -> str:
+        """Assess regression model generalization capability."""
+        diff = abs(train_r2 - test_r2)
+        
+        if diff < 0.05:
+            return "Excellent generalization"
+        elif diff < 0.1:
+            return "Good generalization"
+        elif diff < 0.15:
+            return "Moderate generalization"
+        else:
+            return "Poor generalization (overfitting risk)"
     
     def _create_regression_interpretation(self, evaluation: Dict[str, Any], 
                                         target_column: str, feature_columns: List[str],
