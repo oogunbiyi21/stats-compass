@@ -56,13 +56,23 @@ class CreateFeatureImportanceChartTool(BaseTool):
         coefficients = results['coefficients']
         target_column = results['target_column']
         
+        # Check if this is binary or multiclass classification
+        # Binary: has 'coefficient' column with signed values
+        # Multiclass: only has 'abs_coefficient' (average magnitude) and 'coefficients_by_class'
+        is_multiclass = 'coefficients_by_class' in coefficients.columns
+        
+        # Both binary and multiclass now use 'abs_coefficient' for sorting
+        if 'abs_coefficient' not in coefficients.columns:
+            return "❌ Error: No 'abs_coefficient' column found in model results."
+        
         # Determine which values to show
         if show_odds_ratios and 'odds_ratio' in coefficients.columns:
             interpretation_type = "odds ratios"
             chart_title = title or f"Feature Importance (Odds Ratios): {target_column}"
         else:
             interpretation_type = "coefficients"
-            chart_title = title or f"Feature Importance (Coefficients): {target_column}"
+            suffix = " (Avg Across Classes)" if is_multiclass else ""
+            chart_title = title or f"Feature Importance (Coefficients{suffix}): {target_column}"
         
         # Sort by absolute coefficient value to get most important features
         chart_data = coefficients.sort_values('abs_coefficient', ascending=True).tail(top_n)
@@ -70,11 +80,20 @@ class CreateFeatureImportanceChartTool(BaseTool):
         # Create horizontal bar chart showing coefficients
         fig = go.Figure()
         
-        # Color bars based on positive/negative coefficients  
-        colors = ['green' if x > 0 else 'red' for x in chart_data['coefficient']]
+        # For multiclass, use abs_coefficient (magnitude only, always positive)
+        # For binary, use coefficient (signed value, can be negative)
+        if is_multiclass:
+            x_values = chart_data['abs_coefficient']  # Always positive for multiclass
+            colors = ['steelblue'] * len(chart_data)  # Single color for magnitude
+        else:
+            x_values = chart_data['coefficient']  # Signed for binary
+            colors = ['green' if x > 0 else 'red' for x in x_values]
         
         # Build hover template based on available data
-        if 'odds_ratio' in chart_data.columns:
+        if is_multiclass:
+            hovertemplate = '<b>%{y}</b><br>Avg Coefficient Magnitude: %{x:.4f}<extra></extra>'
+            customdata = [[0]] * len(chart_data)
+        elif 'odds_ratio' in chart_data.columns:
             hovertemplate = '<b>%{y}</b><br>Coefficient: %{x:.4f}<br>Odds Ratio: %{customdata[0]:.3f}<extra></extra>'
             customdata = chart_data[['odds_ratio']].values
         else:
@@ -83,27 +102,38 @@ class CreateFeatureImportanceChartTool(BaseTool):
         
         fig.add_trace(go.Bar(
             y=chart_data['feature'],
-            x=chart_data['coefficient'],
+            x=x_values,
             orientation='h',
             marker=dict(color=colors, opacity=0.7),
             hovertemplate=hovertemplate,
             customdata=customdata
         ))
         
-        # Calculate symmetric range around zero for better visualization
-        max_abs_coef = chart_data['coefficient'].abs().max()
-        x_range = [-max_abs_coef * 1.1, max_abs_coef * 1.1]
+        # Calculate range (symmetric for binary, positive-only for multiclass)
+        if is_multiclass:
+            max_coef = chart_data['abs_coefficient'].max()
+            x_range = [0, max_coef * 1.1]
+        else:
+            max_abs_coef = chart_data['coefficient'].abs().max()
+            x_range = [-max_abs_coef * 1.1, max_abs_coef * 1.1]
+        
+        # Update x-axis label based on model type
+        if is_multiclass:
+            xaxis_title = 'Average Coefficient Magnitude'
+        else:
+            xaxis_title = 'Coefficient Value (Log Odds)'
         
         fig.update_layout(
             title=chart_title,
-            xaxis_title='Coefficient Value (Log Odds)',
+            xaxis_title=xaxis_title,
             yaxis_title='Features',
             hovermode='closest',
             xaxis=dict(range=x_range, zeroline=True, zerolinewidth=2, zerolinecolor='black')
         )
         
-        # Add vertical line at zero (no effect)
-        fig.add_vline(x=0, line_dash="solid", line_color="black", line_width=1, opacity=0.8)
+        # Add vertical line at zero (only for binary classification)
+        if not is_multiclass:
+            fig.add_vline(x=0, line_dash="solid", line_color="black", line_width=1, opacity=0.8)
         
         # Store chart for rendering
         self._store_chart(fig, chart_title, chart_data, target_column, 'logistic_regression', interpretation_type, top_n)

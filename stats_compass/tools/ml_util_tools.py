@@ -12,6 +12,13 @@ from pydantic import BaseModel, Field
 from langchain.tools.base import BaseTool
 from sklearn.preprocessing import TargetEncoder
 
+from stats_compass.utils.workflow_state import get_workflow_state, update_workflow_state
+from stats_compass.tools.ml_guidance import (
+    SmartMLToolMixin,
+    PRIORITY_CRITICAL, PRIORITY_RECOMMENDED, PRIORITY_OPTIONAL,
+    format_suggestion
+)
+
 
 class MeanTargetEncodingInput(BaseModel):
     categorical_columns: List[str] = Field(description="List of categorical column names to encode")
@@ -21,12 +28,17 @@ class MeanTargetEncodingInput(BaseModel):
     target_type: str = Field(default="auto", description="Target type: 'auto', 'continuous', or 'binary'")
 
 
-class MeanTargetEncodingTool(BaseTool):
+class MeanTargetEncodingTool(BaseTool, SmartMLToolMixin):
     """
     Simple mean target encoding tool for categorical variables.
     
     Converts categorical variables to numeric by replacing each category with the mean
     of the target variable for that category. Includes smoothing to prevent overfitting.
+    
+    **Workflow Integration:**
+    - Updates workflow_state to notify ML tools about encoded features
+    - Suggests rerunning models if a model was previously trained
+    - Provides priority-based recommendations for next steps
     """
     
     name: str = "mean_target_encoding"
@@ -227,6 +239,65 @@ class MeanTargetEncodingTool(BaseTool):
                 f"  • Missing values handled automatically",
                 f"  • Use encoded columns for ML models"
             ])
+            
+            # ========================================
+            # Workflow Intelligence: Update state and generate suggestions
+            # ========================================
+            
+            # Update workflow state to notify other tools
+            update_workflow_state({
+                'categorical_encoded': True,
+                'available_encoded_columns': encoded_column_names,
+                'encoding_target': target_column
+            })
+            
+            # Check if models were previously trained
+            workflow_state = get_workflow_state()
+            last_model_target = workflow_state.get('last_model_target')
+            last_model_features = workflow_state.get('last_model_features', [])
+            models_trained = workflow_state.get('models_trained', [])
+            
+            # Generate smart suggestions
+            suggestions = []
+            
+            if models_trained and last_model_target == target_column:
+                # User had trained a model with same target - suggest retraining!
+                # Check if previous model used the original categorical columns
+                used_original_cats = any(col in last_model_features for col in valid_categorical_columns)
+                
+                if used_original_cats:
+                    suggestions.append(format_suggestion(
+                        PRIORITY_CRITICAL,
+                        f"Rerun your {len(models_trained)} model(s) with encoded features instead of original categorical columns",
+                        f"encoded features will capture category-target relationships and likely improve performance significantly"
+                    ))
+                else:
+                    suggestions.append(format_suggestion(
+                        PRIORITY_RECOMMENDED,
+                        f"Rerun your model(s) to include the new encoded features: {', '.join(encoded_column_names[:3])}{'...' if len(encoded_column_names) > 3 else ''}",
+                        f"adding {n_output_cols} encoded feature{'s' if n_output_cols > 1 else ''} may improve model performance"
+                    ))
+            elif models_trained and last_model_target != target_column:
+                # User trained model with different target
+                suggestions.append(format_suggestion(
+                    PRIORITY_OPTIONAL,
+                    f"Note: Encoded for '{target_column}' but previous models used '{last_model_target}'",
+                    f"encoding is target-specific, consider re-encoding if building models for '{last_model_target}'"
+                ))
+            else:
+                # No models trained yet - suggest building one
+                suggestions.append(format_suggestion(
+                    PRIORITY_RECOMMENDED,
+                    f"Build a model predicting '{target_column}' using the encoded features",
+                    f"the {n_output_cols} encoded column{'s' if n_output_cols > 1 else ''} can now be used as predictors"
+                ))
+            
+            # Add suggestions to output
+            if suggestions:
+                summary_lines.append("")
+                summary_lines.append("🔮 **Next Steps:**")
+                for suggestion in suggestions:
+                    summary_lines.append(f"  {suggestion}")
             
             return '\n'.join(summary_lines)
             

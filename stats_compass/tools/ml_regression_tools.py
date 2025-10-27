@@ -10,7 +10,7 @@ import pandas as pd
 import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
-from sklearn.linear_model import LinearRegression, LogisticRegression
+from sklearn.linear_model import LinearRegression, LogisticRegression, Lasso, Ridge, ElasticNet
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error, accuracy_score, roc_auc_score
 from sklearn.preprocessing import StandardScaler, LabelEncoder
@@ -22,6 +22,12 @@ import streamlit as st
 from typing import Type, Dict, List, Any, Optional, Tuple
 from pydantic import BaseModel, Field, PrivateAttr
 from langchain.tools.base import BaseTool
+from stats_compass.utils.workflow_state import get_workflow_state, update_workflow_state
+from stats_compass.tools.ml_guidance import (
+    SmartMLToolMixin,
+    assess_regression_quality, format_suggestion,
+    PRIORITY_CRITICAL, PRIORITY_RECOMMENDED, PRIORITY_OPTIONAL
+)
 
 
 class LinearRegressionInput(BaseModel):
@@ -30,9 +36,12 @@ class LinearRegressionInput(BaseModel):
     test_size: float = Field(default=0.2, description="Proportion of data for testing (0.0-0.5)")
     include_intercept: bool = Field(default=True, description="Whether to include intercept term")
     standardize_features: bool = Field(default=False, description="Whether to standardize features before fitting")
+    regularization_type: Optional[str] = Field(default=None, description="Type of regularization: None, 'lasso' (L1), 'ridge' (L2), or 'elasticnet' (L1+L2)")
+    alpha: float = Field(default=1.0, description="Regularization strength (higher = more regularization). Only used if regularization_type is set")
+    l1_ratio: float = Field(default=0.5, description="Mix of L1 and L2 for elasticnet (0=ridge, 1=lasso). Only used if regularization_type='elasticnet'")
 
 
-class RunLinearRegressionTool(BaseTool):
+class RunLinearRegressionTool(BaseTool, SmartMLToolMixin):
     """
     Comprehensive linear regression analysis tool for predictive modeling.
     
@@ -41,6 +50,7 @@ class RunLinearRegressionTool(BaseTool):
     - Assumption checking and diagnostics
     - Professional visualizations
     - Business-focused insights
+    - Smart workflow guidance via SmartMLToolMixin
     """
     
     name: str = "run_linear_regression"
@@ -59,86 +69,53 @@ class RunLinearRegressionTool(BaseTool):
             return st.session_state.df
         return self._df
 
-    def _prepare_regression_data(
-        self,
-        df: pd.DataFrame,
-        target_column: str,
-        feature_columns: Optional[List[str]],
-        allow_non_numeric_target: bool = False
-    ) -> tuple:
-        """
-        Shared helper for preparing and validating regression data.
-        
-        Args:
-            df: Input dataframe
-            target_column: Name of target column
-            feature_columns: List of feature columns (None = auto-select numeric)
-            allow_non_numeric_target: Whether to allow non-numeric targets (for classification)
-            
-        Returns:
-            Tuple of (X, y, feature_columns, error_message)
-            If error occurs, returns (None, None, None, error_string)
-        """
-        # Validate target column exists
-        if target_column not in df.columns:
-            return None, None, None, f"❌ Target column '{target_column}' not found in dataset. Available columns: {list(df.columns)}"
-        
-        # Validate target is numeric (for regression only)
-        if not allow_non_numeric_target and not pd.api.types.is_numeric_dtype(df[target_column]):
-            return None, None, None, f"❌ Target column '{target_column}' must be numeric for regression"
-        
-        # Auto-select features if not provided
-        if feature_columns is None:
-            numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
-            feature_columns = [col for col in numeric_cols if col != target_column]
-        
-        if not feature_columns:
-            return None, None, None, "❌ No numeric feature columns available for regression"
-        
-        # Check for missing feature columns
-        missing_cols = [col for col in feature_columns if col not in df.columns]
-        if missing_cols:
-            return None, None, None, f"❌ Feature columns not found: {missing_cols}"
-        
-        # Extract features and target
-        X = df[feature_columns].copy()
-        y = df[target_column].copy()
-        
-        # Remove rows with missing values
-        missing_mask = X.isnull().any(axis=1) | y.isnull()
-        if missing_mask.sum() > 0:
-            X = X[~missing_mask]
-            y = y[~missing_mask]
-        
-        return X, y, feature_columns, None
-
     def _run(self, target_column: str, 
              feature_columns: Optional[List[str]] = None,
              test_size: float = 0.2,
              include_intercept: bool = True,
-             standardize_features: bool = False) -> str:
+             standardize_features: bool = False,
+             regularization_type: Optional[str] = None,
+             alpha: float = 1.0,
+             l1_ratio: float = 0.5) -> str:
         """
-        Execute linear regression analysis.
+        Execute linear regression analysis with smart workflow guidance.
         
         Args:
             target_column: Column to predict (dependent variable)
-            feature_columns: Columns to use as predictors (if None, use all numeric columns)
+            feature_columns: Columns to use as predictors (if None, use all numeric + encoded columns)
             test_size: Proportion of data for testing (0.0-0.5)
+            include_intercept: Whether to include intercept term
+            standardize_features: Whether to standardize features before fitting
+            regularization_type: Type of regularization (None, 'lasso', 'ridge', 'elasticnet')
+            alpha: Regularization strength (higher = more regularization)
+            l1_ratio: L1/L2 mix for elasticnet (0=ridge, 1=lasso)
             include_intercept: Whether to include intercept term
             standardize_features: Whether to standardize features before fitting
             
         Returns:
-            String containing formatted results for display
+            String containing formatted results with quality assessment and workflow suggestions
         """
         try:
             # Get the most current dataframe
             df = self._get_current_df()
+            
+            # ============================================
+            # Dataset Inspection & Feature Analysis (using mixin)
+            # ============================================
+            dataset_context = self._analyze_ml_features(df, target_column, feature_columns)
             
             # Validate test_size
             if test_size < 0 or test_size > 0.5:
                 return f"❌ test_size must be between 0 and 0.5"
             
             # Prepare and validate data using shared helper
+            # NOTE: feature_columns may be auto-populated with encoded columns
+            if feature_columns is None and dataset_context.get('auto_included_encoded'):
+                # Auto-include encoded features
+                numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+                numeric_cols = [col for col in numeric_cols if col != target_column]
+                feature_columns = numeric_cols + dataset_context['auto_included_encoded']
+            
             X, y, feature_columns, error = self._prepare_regression_data(
                 df, target_column, feature_columns, allow_non_numeric_target=False
             )
@@ -149,6 +126,9 @@ class RunLinearRegressionTool(BaseTool):
             original_length = len(df)
             missing_count = original_length - len(X)
             missing_mask = pd.Series([True] * missing_count + [False] * len(X))
+            
+            # Store missing count in context for suggestions
+            dataset_context['missing_removed'] = missing_count
             
             # Check if we have enough data (need at least 10x the number of features)
             min_required_samples = max(20, len(feature_columns) * 10)
@@ -181,8 +161,18 @@ class RunLinearRegressionTool(BaseTool):
                 X_train_scaled = X_train
                 X_test_scaled = X_test
                 
-            # Fit model
-            model = LinearRegression(fit_intercept=include_intercept)
+            # Fit model with optional regularization
+            if regularization_type is None:
+                model = LinearRegression(fit_intercept=include_intercept)
+            elif regularization_type.lower() == 'lasso':
+                model = Lasso(alpha=alpha, fit_intercept=include_intercept, random_state=42)
+            elif regularization_type.lower() == 'ridge':
+                model = Ridge(alpha=alpha, fit_intercept=include_intercept, random_state=42)
+            elif regularization_type.lower() == 'elasticnet':
+                model = ElasticNet(alpha=alpha, l1_ratio=l1_ratio, fit_intercept=include_intercept, random_state=42)
+            else:
+                return f"❌ Invalid regularization_type: '{regularization_type}'. Must be None, 'lasso', 'ridge', or 'elasticnet'"
+                
             model.fit(X_train_scaled, y_train)
             
             # Make predictions
@@ -252,16 +242,53 @@ class RunLinearRegressionTool(BaseTool):
                 # Also store as 'linear_regression' for backwards compatibility
                 st.session_state.ml_model_results['linear_regression'] = st.session_state.ml_model_results[model_key]
             
+            # ============================================
+            # Quality Assessment (using mixin)
+            # ============================================
+            quality_assessment = self._assess_model_quality(
+                metrics={'train_r2': train_r2, 'test_r2': test_r2, 'train_rmse': train_rmse, 'test_rmse': test_rmse},
+                model_type='regression',
+                dataset_context=dataset_context
+            )
+            
+            # ============================================
+            # Generate Smart Suggestions (using mixin)
+            # ============================================
+            suggestions = self._generate_ml_suggestions(
+                quality_assessment, dataset_context, target_column, feature_columns, model_type='regression'
+            )
+            
+            # ============================================
+            # Update Workflow Metadata (using mixin)
+            # ============================================
+            self._update_ml_workflow_metadata(
+                model_type='regression',
+                model_quality=quality_assessment['quality_level'],
+                features_used=feature_columns,
+                model_key=model_key,
+                target_column=target_column,
+                primary_metric=test_r2
+            )
+            
             # Format results as string for display
             result_lines = [f"📊 **Linear Regression Analysis: {target_column}**\n"]
             result_lines.append(f"🔑 Model Key: `{model_key}`\n")
             
             # Model summary
+            model_type_str = "Linear Regression"
+            if regularization_type:
+                if regularization_type.lower() == 'lasso':
+                    model_type_str = f"LASSO Regression (L1, α={alpha})"
+                elif regularization_type.lower() == 'ridge':
+                    model_type_str = f"Ridge Regression (L2, α={alpha})"
+                elif regularization_type.lower() == 'elasticnet':
+                    model_type_str = f"ElasticNet Regression (L1+L2, α={alpha}, l1_ratio={l1_ratio})"
+            
             result_lines.extend([
-                f"**Model Type:** Linear Regression",
+                f"**Model Type:** {model_type_str}",
                 f"**Target Variable:** {target_column}",
-                f"**Features Used:** {', '.join(feature_columns)}",
-                f"**Observations:** {len(X):,} (after removing missing values)",
+                f"**Features Used:** {', '.join(feature_columns)} ({len(feature_columns)} feature{'s' if len(feature_columns) != 1 else ''})",
+                f"**Observations:** {len(X):,} (after removing missing values)" if missing_count > 0 else f"**Observations:** {len(X):,}",
                 f"**Train/Test Split:** {int((1-test_size)*100)}/{int(test_size*100)}%" if test_size > 0 else "No split",
                 f"**Standardized Features:** {'Yes' if standardize_features else 'No'}",
                 f"",
@@ -273,6 +300,28 @@ class RunLinearRegressionTool(BaseTool):
                 f""
             ])
             
+            # ============================================
+            # NEW: Auto-included features note
+            # ============================================
+            if dataset_context.get('auto_included_encoded'):
+                result_lines.extend([
+                    f"✅ **Auto-included encoded features:** {', '.join(dataset_context['auto_included_encoded'])}",
+                    f"   (Detected from previous encoding step)",
+                    f""
+                ])
+            
+            # ============================================
+            # Regularization-specific notes
+            # ============================================
+            if regularization_type and regularization_type.lower() == 'lasso':
+                # Count features with zero coefficients (feature selection)
+                zero_coefs = (np.abs(model.coef_) < 1e-10).sum()
+                if zero_coefs > 0:
+                    result_lines.extend([
+                        f"🎯 **LASSO Feature Selection:** {zero_coefs}/{len(feature_columns)} features eliminated (coefficient = 0)",
+                        f"   Active features: {len(feature_columns) - zero_coefs}",
+                        f""
+                    ])
             
             # Feature importance
             result_lines.extend([
@@ -330,10 +379,31 @@ class RunLinearRegressionTool(BaseTool):
                 sign = "+" if row['coefficient'] >= 0 else ""
                 result_lines[-1] += f" {sign} {row['coefficient']:.4f} × {row['feature']}"
             
+            # ============================================
+            # NEW: Quality Warnings (conditional)
+            # ============================================
+            if quality_assessment['warnings']:
+                result_lines.extend([
+                    f"",
+                    f"⚠️ **Model Quality Assessment ({quality_assessment['quality_label']}):**"
+                ])
+                for warning in quality_assessment['warnings']:
+                    result_lines.append(f"  • {warning}")
+            
+            # ============================================
+            # NEW: Smart Workflow Suggestions
+            # ============================================
+            if suggestions:
+                result_lines.extend([
+                    f"",
+                    f"� **Suggested Next Steps:**"
+                ])
+                for i, suggestion in enumerate(suggestions, 1):
+                    result_lines.append(f"  {i}. {suggestion}")
+            
+            # Data notes (if applicable)
             if missing_mask.sum() > 0:
                 result_lines.append(f"\n📝 **Data Notes:** Removed {missing_count} rows with missing values")
-                
-            result_lines.append(f"\n📊 **Next Steps:** Use evaluate_regression_model for comprehensive model assessment, then create charts to visualize regression results, residuals, and feature importance.")
                 
             return "\n".join(result_lines)
             
@@ -353,9 +423,12 @@ class LogisticRegressionInput(BaseModel):
     standardize_features: bool = Field(default=False, description="Whether to standardize features before fitting")
     class_weight: Optional[str] = Field(default=None, description="Handle class imbalance ('balanced' or None)")
     multi_class: str = Field(default="auto", description="Multiclass strategy: 'auto', 'ovr' (one-vs-rest), or 'multinomial' (softmax)")
+    penalty: Optional[str] = Field(default='l2', description="Regularization penalty: 'l1' (LASSO), 'l2' (Ridge), 'elasticnet' (L1+L2), or None")
+    C: float = Field(default=1.0, description="Inverse of regularization strength (smaller = stronger regularization). Must be positive")
+    l1_ratio: float = Field(default=0.5, description="Mix of L1 and L2 for elasticnet (0=ridge, 1=lasso). Only used if penalty='elasticnet'")
 
 
-class RunLogisticRegressionTool(BaseTool):
+class RunLogisticRegressionTool(BaseTool, SmartMLToolMixin):
     """
     Comprehensive logistic regression analysis tool for binary and multiclass classification.
     
@@ -365,6 +438,7 @@ class RunLogisticRegressionTool(BaseTool):
     - PM-friendly coefficient interpretation  
     - Model diagnostics and assumption checking
     - Professional visualizations
+    - Smart workflow guidance via SmartMLToolMixin
     """
     
     name: str = "run_logistic_regression"
@@ -388,7 +462,10 @@ class RunLogisticRegressionTool(BaseTool):
              test_size: float = 0.2,
              standardize_features: bool = False,
              class_weight: Optional[str] = None,
-             multi_class: str = "auto") -> str:
+             multi_class: str = "auto",
+             penalty: Optional[str] = 'l2',
+             C: float = 1.0,
+             l1_ratio: float = 0.5) -> str:
         """
         Execute logistic regression analysis.
         
@@ -399,6 +476,9 @@ class RunLogisticRegressionTool(BaseTool):
             standardize_features: Whether to standardize features
             class_weight: Handle class imbalance ('balanced' or None)
             multi_class: Multiclass strategy ('auto', 'ovr', or 'multinomial')
+            penalty: Regularization penalty ('l1', 'l2', 'elasticnet', or None)
+            C: Inverse of regularization strength (smaller = stronger)
+            l1_ratio: L1/L2 mix for elasticnet (0=ridge, 1=lasso)
             
         Returns:
             String containing formatted results for display
@@ -406,6 +486,11 @@ class RunLogisticRegressionTool(BaseTool):
         try:
             # Get the most current dataframe
             df = self._get_current_df()
+            
+            # ============================================
+            # Dataset Inspection & Feature Analysis (using mixin)
+            # ============================================
+            dataset_context = self._analyze_ml_features(df, target_column, feature_columns)
             
             # Check target variable and determine classification type
             if target_column not in df.columns:
@@ -420,6 +505,12 @@ class RunLogisticRegressionTool(BaseTool):
             # Determine if binary or multiclass
             is_binary = n_classes == 2
             is_multiclass = n_classes > 2
+            
+            # Auto-include encoded features if available
+            if feature_columns is None and dataset_context.get('auto_included_encoded'):
+                numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+                numeric_cols = [col for col in numeric_cols if col != target_column]
+                feature_columns = numeric_cols + dataset_context['auto_included_encoded']
             
             # Prepare and validate data using shared helper
             X, y_original, feature_columns, error = self._prepare_regression_data(
@@ -446,7 +537,11 @@ class RunLogisticRegressionTool(BaseTool):
             minority_class_pct = class_counts.min() / len(y) * 100
             
             if minority_class_pct < 5:
-                return f"❌ Severely imbalanced classes: {class_counts.to_dict()}. Consider using class_weight='balanced'"
+                # Severely imbalanced - warn user even if using class_weight
+                if class_weight == 'balanced':
+                    return f"⚠️ Warning: Severely imbalanced classes detected: {class_counts.to_dict()}\n\nMinority class represents only {minority_class_pct:.1f}% of data. You're using class_weight='balanced', which helps, but consider:\n\n1. **Resampling**: Use SMOTE or RandomOverSampler for minority classes\n2. **Data Collection**: Gather more samples for minority classes\n3. **Class Combination**: Merge similar rare classes if domain-appropriate\n4. **Ensemble Methods**: Try RandomForest or XGBoost which handle imbalance better\n\nProceed with caution - model performance on minority classes may be poor."
+                else:
+                    return f"❌ Severely imbalanced classes: {class_counts.to_dict()}. Minority class is only {minority_class_pct:.1f}% of data. Set class_weight='balanced' to continue."
             elif minority_class_pct < 20:
                 if class_weight is None:
                     class_weight = 'balanced'
@@ -483,15 +578,43 @@ class RunLogisticRegressionTool(BaseTool):
                 effective_multi_class = "multinomial" if is_multiclass else "auto"
             else:
                 effective_multi_class = multi_class
+            
+            # Determine solver based on penalty
+            # L1 and elasticnet require 'saga' or 'liblinear' (saga supports multinomial)
+            # L2 works with 'lbfgs', 'saga', 'liblinear'
+            # None penalty requires 'saga' or other compatible solvers
+            if penalty == 'l1':
+                solver = 'saga'  # saga supports both binary and multiclass
+            elif penalty == 'elasticnet':
+                solver = 'saga'  # only saga supports elasticnet
+            elif penalty is None or penalty.lower() == 'none':
+                solver = 'saga'  # saga supports no penalty
+                penalty = None
+            else:  # l2 or default
+                solver = 'lbfgs'  # fast and works well for L2
                 
-            # Fit model
-            model = LogisticRegression(
-                class_weight=class_weight,
-                random_state=42,
-                max_iter=1000,
-                multi_class=effective_multi_class,
-                solver='lbfgs'  # Works well for both binary and multiclass
-            )
+            # Fit model with regularization parameters
+            if penalty == 'elasticnet':
+                model = LogisticRegression(
+                    penalty=penalty,
+                    C=C,
+                    l1_ratio=l1_ratio,
+                    class_weight=class_weight,
+                    random_state=42,
+                    max_iter=2000,  # saga may need more iterations
+                    multi_class=effective_multi_class,
+                    solver=solver
+                )
+            else:
+                model = LogisticRegression(
+                    penalty=penalty,
+                    C=C,
+                    class_weight=class_weight,
+                    random_state=42,
+                    max_iter=2000 if solver == 'saga' else 1000,
+                    multi_class=effective_multi_class,
+                    solver=solver
+                )
             model.fit(X_train_scaled, y_train)
             
             # Make predictions
@@ -525,9 +648,9 @@ class RunLogisticRegressionTool(BaseTool):
                 avg_abs_coef = np.mean(np.abs(model.coef_), axis=0)
                 coefficients = pd.DataFrame({
                     'feature': feature_columns,
-                    'avg_abs_coefficient': avg_abs_coef,
+                    'abs_coefficient': avg_abs_coef,
                     'coefficients_by_class': [model.coef_[:, i] for i in range(len(feature_columns))]
-                }).sort_values('avg_abs_coefficient', ascending=False)
+                }).sort_values('abs_coefficient', ascending=False)
             
             # Store comprehensive results in session state for evaluation and chart tools
             if hasattr(st, 'session_state'):
@@ -566,19 +689,83 @@ class RunLogisticRegressionTool(BaseTool):
                 # Also store as 'logistic_regression' for backwards compatibility
                 st.session_state.ml_model_results['logistic_regression'] = st.session_state.ml_model_results[model_key]
             
+            # ============================================
+            # Quality Assessment (using mixin)
+            # ============================================
+            # Prepare metrics for quality assessment
+            train_acc = accuracy_score(y_train, y_train_pred)
+            test_acc = accuracy_score(y_test, y_test_pred)
+            
+            if is_binary:
+                train_auc = roc_auc_score(y_train, y_train_proba_positive)
+                test_auc = roc_auc_score(y_test, y_test_proba_positive)
+                metrics = {
+                    'train_auc': train_auc,
+                    'test_auc': test_auc,
+                    'train_acc': train_acc,
+                    'test_acc': test_acc
+                }
+            else:
+                # For multiclass, use accuracy as primary metric
+                metrics = {
+                    'train_acc': train_acc,
+                    'test_acc': test_acc,
+                    'train_auc': train_acc,  # Use accuracy as proxy for multiclass
+                    'test_auc': test_acc
+                }
+            
+            # Store missing count in context
+            dataset_context['missing_removed'] = len(df) - len(X)
+            
+            quality_assessment = self._assess_model_quality(
+                metrics=metrics,
+                model_type='classification',
+                dataset_context=dataset_context
+            )
+            
+            # ============================================
+            # Generate Smart Suggestions (using mixin)
+            # ============================================
+            suggestions = self._generate_ml_suggestions(
+                quality_assessment, dataset_context, target_column,
+                feature_columns, model_type='classification'
+            )
+            
+            # ============================================
+            # Update Workflow Metadata (using mixin)
+            # ============================================
+            self._update_ml_workflow_metadata(
+                model_type='classification',
+                model_quality=quality_assessment['quality_level'],
+                features_used=feature_columns,
+                model_key=model_key,
+                target_column=target_column,
+                primary_metric=test_auc if is_binary else test_acc
+            )
+            
             # Format results as string for display
             classification_type = "Binary" if is_binary else f"Multiclass ({n_classes} classes)"
             result_lines = [f"📊 **{classification_type} Logistic Regression Analysis: {target_column}**\n"]
             result_lines.append(f"🔑 Model Key: `{model_key}`\n")
             
-            # Model summary
+            # Model summary with regularization info
+            model_type_str = f"{classification_type} Logistic Regression"
+            if penalty and penalty.lower() != 'none':
+                if penalty == 'l1':
+                    model_type_str += f" (L1/LASSO, C={C})"
+                elif penalty == 'l2':
+                    model_type_str += f" (L2/Ridge, C={C})"
+                elif penalty == 'elasticnet':
+                    model_type_str += f" (ElasticNet, C={C}, l1_ratio={l1_ratio})"
+            
             if is_binary:
                 classes_info = f"Classes: {unique_values[0]}, {unique_values[1]}"
             else:
                 classes_info = f"Classes: {', '.join(map(str, unique_values))}"
                 
             result_lines.extend([
-                f"**Model Type:** {classification_type} Logistic Regression",
+                f"**Model Type:** {model_type_str}",
+                f"**Solver:** {solver}",
                 f"**Target Variable:** {target_column} ({classes_info})",
                 f"**Features Used:** {', '.join(feature_columns)}",
                 f"**Observations:** {len(X):,} (after removing missing values)",
@@ -600,6 +787,24 @@ class RunLogisticRegressionTool(BaseTool):
                 ])
             
             result_lines.append("")
+            
+            # ============================================
+            # Regularization-specific notes (L1 feature selection)
+            # ============================================
+            if penalty == 'l1':
+                # Count features with zero coefficients (feature selection)
+                if is_binary:
+                    zero_coefs = (np.abs(model.coef_[0]) < 1e-10).sum()
+                else:
+                    # For multiclass, count features that are zero across all classes
+                    zero_coefs = (np.abs(model.coef_).max(axis=0) < 1e-10).sum()
+                
+                if zero_coefs > 0:
+                    result_lines.extend([
+                        f"🎯 **L1 (LASSO) Feature Selection:** {zero_coefs}/{len(feature_columns)} features eliminated (coefficient ≈ 0)",
+                        f"   Active features: {len(feature_columns) - zero_coefs}",
+                        f""
+                    ])
             
             # Feature importance
             if is_binary:
@@ -623,7 +828,7 @@ class RunLogisticRegressionTool(BaseTool):
                 
                 top_features = coefficients.head(5)
                 for _, row in top_features.iterrows():
-                    result_lines.append(f"  • **{row['feature']}**: Average coefficient magnitude: {row['avg_abs_coefficient']:.3f}")
+                    result_lines.append(f"  • **{row['feature']}**: Average coefficient magnitude: {row['abs_coefficient']:.3f}")
                     # Show coefficients for each class
                     class_coefs = row['coefficients_by_class']
                     for i, coef in enumerate(class_coefs):
@@ -650,7 +855,7 @@ class RunLogisticRegressionTool(BaseTool):
                     result_lines.append(f"• **{row['feature']}**: Odds Ratio = {odds_ratio:.3f}, Coefficient = {row['coefficient']:.4f}")
                     result_lines.append(f"  → 1 unit increase {effect}")
                 else:
-                    result_lines.append(f"• **{row['feature']}**: Average coefficient magnitude = {row['avg_abs_coefficient']:.3f}")
+                    result_lines.append(f"• **{row['feature']}**: Average coefficient magnitude = {row['abs_coefficient']:.3f}")
                     result_lines.append(f"  → Higher values indicate stronger influence on classification decisions")
             
             # Provide model performance context for reliability assessment
@@ -683,15 +888,24 @@ class RunLogisticRegressionTool(BaseTool):
                 result_lines.append(f"🎯 **Classification:** Uses {effective_multi_class} strategy with {n_classes} classes")
                 result_lines.append(f"  → Softmax function converts linear combinations to class probabilities")
             
+            core_results = "\n".join(result_lines)
             
+            # ============================================
+            # Auto-included features note
+            # ============================================
+            auto_included_note = None
+            if dataset_context.get('auto_included_encoded'):
+                auto_included_note = f"✅ **Auto-included encoded features:** {', '.join(dataset_context['auto_included_encoded'])}\n   (Detected from previous encoding step)"
             
-            # Different next steps for binary vs multiclass
-            if is_binary:
-                result_lines.append(f"\n📊 **Next Steps:** Use evaluate_classification_model for comprehensive model assessment, then create ROC curves, precision-recall curves, and feature importance charts.")
-            else:
-                result_lines.append(f"\n📊 **Next Steps:** Use evaluate_classification_model for comprehensive model assessment, then create confusion matrix and feature importance charts for multiclass analysis.")
-                
-            return "\n".join(result_lines)
+            # ============================================
+            # Format final output with smart guidance (using mixin)
+            # ============================================
+            return self._format_ml_output(
+                core_results=core_results,
+                quality_assessment=quality_assessment,
+                suggestions=suggestions,
+                auto_included_note=auto_included_note
+            )
             
         except Exception as e:
             return f"❌ Error in logistic regression analysis: {str(e)}"

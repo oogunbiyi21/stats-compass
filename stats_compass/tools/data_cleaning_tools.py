@@ -20,13 +20,19 @@ from stats_compass.utils.data_cleaning import (
     apply_imputation,
     auto_impute_missing_data
 )
+from stats_compass.utils.workflow_state import get_workflow_state, update_workflow_state
+from stats_compass.tools.ml_guidance import (
+    SmartMLToolMixin,
+    PRIORITY_CRITICAL, PRIORITY_RECOMMENDED, PRIORITY_OPTIONAL,
+    format_suggestion
+)
 
 
 class AnalyzeMissingDataInput(BaseModel):
     pass
 
 
-class AnalyzeMissingDataTool(BaseTool):
+class AnalyzeMissingDataTool(BaseTool, SmartMLToolMixin):
     name: str = "analyze_missing_data"
     description: str = "Performs comprehensive missing data analysis including patterns, correlations, and insights. Use this when you want to understand missing data structure in the dataset."
     args_schema: Type[BaseModel] = AnalyzeMissingDataInput
@@ -77,6 +83,66 @@ class AnalyzeMissingDataTool(BaseTool):
             if missing_info['partially_missing']:
                 summary += f"- Consider imputation for partially missing columns: {', '.join(missing_info['partially_missing'])}\n"
             
+            # ========================================
+            # Workflow Intelligence: Update state and generate suggestions
+            # ========================================
+            
+            # Update workflow state
+            update_workflow_state({
+                'missing_data_analyzed': True
+            })
+            
+            # Get workflow context
+            workflow_state = get_workflow_state()
+            models_trained = workflow_state.get('models_trained', [])
+            
+            # Generate smart suggestions
+            suggestions = []
+            
+            if missing_info['partially_missing']:
+                # Suggest imputation strategies based on missing percentage
+                low_missing = [col for col, pct in missing_info['missing_percentages'].items() 
+                              if col in missing_info['partially_missing'] and pct < 5]
+                medium_missing = [col for col, pct in missing_info['missing_percentages'].items() 
+                                 if col in missing_info['partially_missing'] and 5 <= pct < 30]
+                high_missing = [col for col, pct in missing_info['missing_percentages'].items() 
+                               if col in missing_info['partially_missing'] and 30 <= pct <= 80]
+                
+                if low_missing:
+                    suggestions.append(format_suggestion(
+                        PRIORITY_RECOMMENDED,
+                        f"Apply imputation to low-missing columns ({len(low_missing)} columns with <5% missing): mean/median for numeric, mode for categorical",
+                        f"minimal data loss, safe to impute"
+                    ))
+                
+                if medium_missing:
+                    suggestions.append(format_suggestion(
+                        PRIORITY_RECOMMENDED,
+                        f"Consider advanced imputation for medium-missing columns ({len(medium_missing)} columns with 5-30% missing): KNN or iterative imputation",
+                        f"significant missing data may require sophisticated methods"
+                    ))
+                
+                if high_missing:
+                    suggestions.append(format_suggestion(
+                        PRIORITY_CRITICAL,
+                        f"Evaluate whether to keep high-missing columns ({len(high_missing)} columns with 30-80% missing)",
+                        f"high missing percentage may introduce bias; consider creating 'is_missing' indicator features instead"
+                    ))
+            
+            if models_trained:
+                # User has trained models - missing data handling is critical
+                suggestions.append(format_suggestion(
+                    PRIORITY_CRITICAL,
+                    f"Handle missing data before retraining your {len(models_trained)} model(s)",
+                    f"missing values can cause errors or reduce model performance"
+                ))
+            
+            # Add suggestions to output
+            if suggestions:
+                summary += "\n\n🔮 **Next Steps:**\n"
+                for suggestion in suggestions:
+                    summary += f"  {suggestion}\n"
+            
             return summary
             
         except Exception as e:
@@ -90,7 +156,7 @@ class DetectOutliersInput(BaseModel):
     method: str = Field(default="iqr", description="Method for outlier detection: 'iqr', 'zscore', or 'modified_zscore'")
 
 
-class DetectOutliersTool(BaseTool):
+class DetectOutliersTool(BaseTool, SmartMLToolMixin):
     name: str = "detect_outliers"
     description: str = "Detects outliers in numeric columns using various statistical methods. Useful for understanding data quality and identifying potential anomalies."
     args_schema: Type[BaseModel] = DetectOutliersInput
@@ -137,6 +203,73 @@ class DetectOutliersTool(BaseTool):
                 summary += f"- For machine learning, you may want to handle outliers through transformation or removal\n"
             else:
                 summary += f"- No outliers detected using {method} method - data appears well-behaved\n"
+            
+            # ========================================
+            # Workflow Intelligence: Update state and generate suggestions
+            # ========================================
+            
+            # Update workflow state
+            outlier_columns = [col for col, info in outlier_info.get('outliers_by_column', {}).items() 
+                             if info['count'] > 0]
+            
+            update_workflow_state({
+                'outliers_detected': True,
+                'outlier_columns': outlier_columns
+            })
+            
+            # Get workflow context
+            workflow_state = get_workflow_state()
+            models_trained = workflow_state.get('models_trained', [])
+            last_model_features = workflow_state.get('last_model_features', [])
+            
+            # Generate smart suggestions
+            suggestions = []
+            
+            if outlier_info['total_outliers_found'] > 0:
+                # Categorize outliers by severity
+                severe_outliers = {col: info for col, info in outlier_info['outliers_by_column'].items() 
+                                 if info['count'] > 0 and info['percentage'] > 5}
+                moderate_outliers = {col: info for col, info in outlier_info['outliers_by_column'].items() 
+                                   if info['count'] > 0 and 1 <= info['percentage'] <= 5}
+                minor_outliers = {col: info for col, info in outlier_info['outliers_by_column'].items() 
+                                if info['count'] > 0 and info['percentage'] < 1}
+                
+                if severe_outliers:
+                    suggestions.append(format_suggestion(
+                        PRIORITY_CRITICAL,
+                        f"Handle severe outliers in {len(severe_outliers)} column(s) with >5% outliers: {', '.join(list(severe_outliers.keys())[:3])}",
+                        f"options: (1) Remove outliers, (2) Cap at percentiles (e.g., 1st/99th), (3) Log transform, (4) Winsorization"
+                    ))
+                
+                if moderate_outliers:
+                    suggestions.append(format_suggestion(
+                        PRIORITY_RECOMMENDED,
+                        f"Consider handling moderate outliers in {len(moderate_outliers)} column(s) with 1-5% outliers",
+                        f"outliers may affect model performance; consider robust scaling or transformation"
+                    ))
+                
+                if minor_outliers:
+                    suggestions.append(format_suggestion(
+                        PRIORITY_OPTIONAL,
+                        f"Minor outliers detected in {len(minor_outliers)} column(s) with <1% outliers",
+                        f"low impact; monitor but may not need special handling"
+                    ))
+                
+                # Check if outliers are in features used by models
+                if models_trained and last_model_features:
+                    outliers_in_features = [col for col in outlier_columns if col in last_model_features]
+                    if outliers_in_features:
+                        suggestions.append(format_suggestion(
+                            PRIORITY_CRITICAL,
+                            f"Outliers detected in {len(outliers_in_features)} feature(s) used by your model(s): {', '.join(outliers_in_features[:3])}",
+                            f"handle outliers and retrain model for better performance"
+                        ))
+            
+            # Add suggestions to output
+            if suggestions:
+                summary += "\n\n🔮 **Next Steps:**\n"
+                for suggestion in suggestions:
+                    summary += f"  {suggestion}\n"
             
             return summary
             

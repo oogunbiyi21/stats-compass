@@ -190,9 +190,20 @@ class RunPandasQueryTool(BaseTool):
                     **self._user_vars  # Include user variables from previous queries
                 }
                 
-                # Execute query - use exec for statements, eval for expressions
-                if '=' in query and not any(op in query for op in ['==', '!=', '<=', '>=']):
-                    # This looks like an assignment statement, use exec
+                # Execute query - detect assignment by checking if = is used outside of comparison operators
+                # Assignments: x = value, df['col'] = value
+                # Expressions: df[df['col'] == value], df['col'] > 5
+                
+                # Check if this is an assignment by looking for = that's not part of ==, !=, <=, >=
+                is_assignment = False
+                if '=' in query:
+                    # Remove comparison operators to see if any standalone = remains
+                    temp_query = query.replace('==', '').replace('!=', '').replace('<=', '').replace('>=', '')
+                    if '=' in temp_query:
+                        is_assignment = True
+                
+                if is_assignment:
+                    # This is an assignment statement, use exec
                     exec(query, {"__builtins__": {}}, safe_vars)
                     result = "✅ Assignment completed successfully"
                     
@@ -216,9 +227,15 @@ class RunPandasQueryTool(BaseTool):
                                 size_mb = value.__sizeof__() / 1024 / 1024
                                 if size_mb < 50:  # Max 50MB per variable
                                     self._user_vars[key] = value
+                                    # ALSO store in session state so other tools can access it
+                                    if hasattr(st, 'session_state'):
+                                        st.session_state[key] = value
                         except:
                             # If we can't check size, store it anyway (probably safe)
                             self._user_vars[key] = value
+                            # ALSO store in session state
+                            if hasattr(st, 'session_state'):
+                                st.session_state[key] = value
                 
                 # Check memory usage after execution
                 memory_after = process.memory_info().rss / 1024 / 1024  # MB
@@ -248,6 +265,90 @@ class RunPandasQueryTool(BaseTool):
                 return f"❌ Error running query: {error_msg}"
 
     def _arun(self, query: str):
+        raise NotImplementedError("Async not supported")
+
+
+class UpdateDataframeInput(BaseModel):
+    source: str = Field(description="Name of the variable containing the new dataframe to use as the active dataset (e.g., 'filtered_df', 'sampled_df', 'cleaned_df')")
+
+
+class UpdateDataframeTool(BaseTool):
+    name: str = "update_dataframe"
+    description: str = """
+    Update the active dataframe with a filtered or transformed version created by run_pandas_query.
+    
+    Use this when you've created a modified dataframe (e.g., filtered_df, sampled_df) and want all 
+    subsequent ML tools (run_linear_regression, run_logistic_regression, etc.) to use the updated dataset 
+    instead of the original.
+    
+    Common workflow:
+    1. Use run_pandas_query to filter/transform: "filtered_df = df[df['column'] > value]"
+    2. Use update_dataframe to make it active: update_dataframe(source='filtered_df')
+    3. Now all ML tools will use filtered_df instead of original df
+    
+    Example: After filtering to top 5 genres to have enough samples per class for classification.
+    """
+    args_schema: Type[BaseModel] = UpdateDataframeInput
+
+    _df: pd.DataFrame = PrivateAttr()
+
+    def __init__(self, df: pd.DataFrame):
+        super().__init__()
+        self._df = df
+
+    def _run(self, source: str) -> str:
+        try:
+            # Check if the source variable exists in session state
+            if not hasattr(st, 'session_state'):
+                return "❌ Session state not available. This tool requires Streamlit session state."
+            
+            # First check if it's in RunPandasQueryTool's user_vars
+            # We need to check all tools that might have this variable
+            source_df = None
+            
+            # Try to get from session state directly
+            if source in st.session_state:
+                source_df = st.session_state[source]
+            else:
+                return f"❌ Variable '{source}' not found in session state. Available variables: {[k for k in st.session_state.keys() if isinstance(st.session_state.get(k), pd.DataFrame)]}"
+            
+            # Validate it's actually a DataFrame
+            if not isinstance(source_df, pd.DataFrame):
+                return f"❌ Variable '{source}' is not a DataFrame. Type: {type(source_df).__name__}"
+            
+            # Store the old dataframe info
+            old_shape = st.session_state.df.shape if 'df' in st.session_state else self._df.shape
+            
+            # Update the active dataframe in session state
+            st.session_state.df = source_df
+            
+            # Update this tool's internal dataframe reference
+            self._df = source_df
+            
+            new_shape = source_df.shape
+            
+            # Calculate the change
+            row_change = new_shape[0] - old_shape[0]
+            col_change = new_shape[1] - old_shape[1]
+            
+            row_change_str = f"{row_change:+,}" if row_change != 0 else "no change"
+            col_change_str = f"{col_change:+}" if col_change != 0 else "no change"
+            
+            result = (
+                f"✅ Active dataframe updated from '{source}'\n"
+                f"\n📊 Dataset Changes:\n"
+                f"   Previous: {old_shape[0]:,} rows × {old_shape[1]} columns\n"
+                f"   Current:  {new_shape[0]:,} rows × {new_shape[1]} columns\n"
+                f"   Change:   {row_change_str} rows, {col_change_str} columns\n"
+                f"\n💡 All subsequent ML tools will now use this updated dataset."
+            )
+            
+            return result
+            
+        except Exception as e:
+            return f"❌ Error updating dataframe: {e}"
+
+    def _arun(self, source: str):
         raise NotImplementedError("Async not supported")
 
 
@@ -361,7 +462,7 @@ class GroupByAggregateTool(BaseTool):
     def _arun(self, group_column: str, metric_column: str, aggregation: str):
         raise NotImplementedError("Async not supported")
 
-
+    
 class TopCategoriesInput(BaseModel):
     column: str = Field(description="Column to analyze")
     n: int = Field(default=10, description="Number of top categories to return")
