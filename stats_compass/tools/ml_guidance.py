@@ -696,7 +696,7 @@ class SmartMLToolMixin:
         if model_type == 'regression':
             viz_tools = "create_regression_plot, create_residual_plot, and create_coefficient_chart"
         else:
-            viz_tools = "create_roc_curve, create_confusion_matrix, and create_feature_importance_chart"
+            viz_tools = "create_roc_curve, create_precision_recall_curve, and create_feature_importance_chart"
         
         priority = PRIORITY_OPTIONAL_INT
         suggestion = format_suggestion(

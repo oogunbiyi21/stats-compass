@@ -180,15 +180,28 @@ class RunPandasQueryToolInput(BaseModel):
 
 class RunPandasQueryTool(BaseTool):
     name: str = "run_pandas_query"
-    description: str = """Run safe Python expressions on dataframe `df`. Allows: df['col'].unique(), df.columns, df['col'] = df['col'].replace('old','new'), variable assignments. Blocks: df=new_df, imports, file operations.
+    description: str = """Run safe pandas QUERIES and COLUMN MODIFICATIONS on dataframe `df`. 
+    
+USE THIS TOOL FOR:
+✅ Querying data: df['col'].unique(), df.columns, df.groupby('col').mean()
+✅ Modifying columns IN-PLACE: df['col'] = df['col'].replace('old', 'new')
+✅ Simple calculations: result = df['price'].mean()
+
+DO NOT USE FOR:
+❌ Filtering/subsetting dataframe: df = df[df['col'] > 5]  → Use other tools instead
+❌ Creating new columns: df['new_col'] = ...  → Use create_column tool instead
+❌ Complex transformations  → Use specialized tools (create_column, apply_transformation, etc.)
+
+SECURITY - These operations are BLOCKED:
+🚫 df = new_df (replacing entire dataframe)
+🚫 imports, exec, eval, file operations
 
 IMPORTANT - Type Matching in Filters:
 - ALWAYS match data types when using .isin() or comparisons
 - For integer columns, use integers: df[df['col'].isin([0, 1])]  ✓
 - For string columns, use strings: df[df['col'].isin(['0', '1'])]  ✓
 - AVOID mixing types: df[df['col'].isin(['0', 1])]  ✗ (unpredictable!)
-- Check dtype first: df['col'].dtype or df['col'].unique() to see actual values
-- Type mismatches cause filters to fail silently or behave unpredictably"""
+- Check dtype first: df['col'].dtype or df['col'].unique() to see actual values"""
     args_schema: Type[BaseModel] = RunPandasQueryToolInput
 
     _df: pd.DataFrame = PrivateAttr()
@@ -273,7 +286,25 @@ IMPORTANT - Type Matching in Filters:
     def _get_security_error_message(self, query: str) -> str:
         """Return appropriate error message based on detected security issue."""
         if any(pattern in query.lower() for pattern in ['df =', 'pd =', 'np =']):
-            return "❌ Cannot overwrite core objects (df, pd, np). These are protected for system stability."
+            # Check if this is trying to filter/subset the dataframe
+            if 'df[' in query and '=' in query and query.strip().startswith('df ='):
+                return """❌ Cannot replace entire dataframe (security protection).
+
+💡 To create a filtered/subset dataframe, use one of these approaches:
+
+1. For simple row filtering:
+   - Use: filtered = df[df['col'] > 5]  (assigns to new variable)
+   - Then work with 'filtered' variable
+
+2. For creating new columns:
+   - Use: create_column(column_name='new_col', operation="df['old_col'] * 2")
+
+3. For replacing values in existing columns:
+   - Use: df['col'] = df['col'].replace('old', 'new')  (modifies column, not df)
+
+❌ Don't use: df = df[condition]  (blocked for security)"""
+            else:
+                return "❌ Cannot overwrite core objects (df, pd, np). These are protected for system stability."
         elif 'random' in query.lower() and '=' in query:
             return "❌ Random data generation is not allowed to prevent memory issues."
         elif re.search(r'range\(\s*\d{6,}', query) or re.search(r'zeros\(\s*\d{6,}', query):
@@ -357,7 +388,7 @@ IMPORTANT - Type Matching in Filters:
         Update internal state and session state with variables from executed query.
         
         Handles:
-        - DataFrame updates (only if identity changed)
+        - DataFrame updates (both in-place modifications and replacements)
         - User variable storage (with size limits)
         - Session state synchronization
         
@@ -366,8 +397,9 @@ IMPORTANT - Type Matching in Filters:
         # Get current dataframe from StateManager
         current_df = DataFrameStateManager.get_active_df() or self._df
         
-        # Check if main dataframe was replaced
-        if 'df' in safe_vars and safe_vars['df'] is not current_df:
+        # Always update the dataframe if it exists in safe_vars
+        # This handles both in-place modifications (df['col'] = value) and replacements (df = new_df)
+        if 'df' in safe_vars:
             new_df = safe_vars['df']
             self._df = new_df
             DataFrameStateManager.set_active_df(new_df)

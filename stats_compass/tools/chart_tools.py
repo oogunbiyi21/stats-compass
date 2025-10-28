@@ -12,6 +12,7 @@ import plotly.graph_objects as go
 import streamlit as st
 from pydantic import BaseModel, Field, PrivateAttr
 from langchain.tools.base import BaseTool
+from tools.exploration_tools import DataFrameStateManager
 
 
 class CreateBarChartInput(BaseModel):
@@ -388,9 +389,24 @@ class CreateColumnInput(BaseModel):
 
 class CreateColumnTool(BaseTool):
     name: str = "create_column"
-    description: str = """Create a new column in the dataset using pandas operations.
-    This tool allows you to add calculated columns, conditional columns, or transform existing data.
-    Use this for complex data transformations that require creating new variables."""
+    description: str = """Create a NEW column in the dataset using pandas operations.
+    
+USE THIS TOOL FOR:
+✅ Creating calculated columns: df['price'] * 1.2, df['area'] / df['bedrooms']
+✅ Conditional columns: df['col'].apply(lambda x: 'High' if x > 10 else 'Low')
+✅ String operations: df['first_name'] + ' ' + df['last_name']
+✅ Cleaning/transforming existing data into a NEW column
+✅ Replacing invalid values: df['col'].apply(lambda x: x if x in ['yes','no'] else None)
+
+DO NOT USE FOR:
+❌ Modifying existing columns in-place → Use run_pandas_query instead: df['col'] = df['col'].replace(...)
+❌ Simple queries/lookups → Use run_pandas_query
+❌ Statistical calculations only → Use run_pandas_query
+
+EXAMPLES:
+- create_column(column_name='price_per_sqft', operation="df['price'] / df['area']")
+- create_column(column_name='airconditioning_cleaned', operation="df['airconditioning'].apply(lambda x: x if x in ['yes','no'] else 'no')")
+- create_column(column_name='full_address', operation="df['street'] + ', ' + df['city']")"""
     args_schema: Type[BaseModel] = CreateColumnInput
     
     _df: pd.DataFrame = PrivateAttr()
@@ -434,7 +450,10 @@ class CreateColumnTool(BaseTool):
                 # Add the new column
                 self._df[column_name] = result
                 
-                # Update the dataframe in session state if available
+                # Update the dataframe in StateManager for consistency across tools
+                DataFrameStateManager.set_active_df(self._df)
+                
+                # Also update session state for backward compatibility
                 if hasattr(st, 'session_state') and 'uploaded_df' in st.session_state:
                     st.session_state.uploaded_df = self._df
                 

@@ -755,6 +755,11 @@ class RunLogisticRegressionTool(BaseTool, SmartMLToolMixin):
             result_lines.append(f"📊 **{classification_type} Logistic Regression Analysis: {target_column}**\n")
             result_lines.append(f"🔑 Model Key: `{model_key}`\n")
             
+            # Add prominent next steps note
+            result_lines.append(f"📋 **Next Steps:**")
+            result_lines.append(f"  1️⃣ Run `evaluate_classification_model(model_key='{model_key}')` for detailed metrics")
+            result_lines.append(f"  2️⃣ Create visualizations: `create_roc_curve`, `create_precision_recall_curve`, `create_feature_importance_chart`\n")
+            
             # Model summary with regularization info
             model_type_str = f"{classification_type} Logistic Regression"
             if penalty and penalty.lower() != 'none':
