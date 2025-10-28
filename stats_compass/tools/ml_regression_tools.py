@@ -116,16 +116,11 @@ class RunLinearRegressionTool(BaseTool, SmartMLToolMixin):
                 numeric_cols = [col for col in numeric_cols if col != target_column]
                 feature_columns = numeric_cols + dataset_context['auto_included_encoded']
             
-            X, y, feature_columns, error = self._prepare_regression_data(
+            X, y, feature_columns, error, missing_count = self._prepare_regression_data(
                 df, target_column, feature_columns, allow_non_numeric_target=False
             )
             if error:
                 return error
-            
-            # Track missing value removal for reporting
-            original_length = len(df)
-            missing_count = original_length - len(X)
-            missing_mask = pd.Series([True] * missing_count + [False] * len(X))
             
             # Store missing count in context for suggestions
             dataset_context['missing_removed'] = missing_count
@@ -246,7 +241,7 @@ class RunLinearRegressionTool(BaseTool, SmartMLToolMixin):
             # Quality Assessment (using mixin)
             # ============================================
             quality_assessment = self._assess_model_quality(
-                metrics={'train_r2': train_r2, 'test_r2': test_r2, 'train_rmse': train_rmse, 'test_rmse': test_rmse},
+                metrics={'train_r2': train_r2, 'test_r2': test_r2, 'train_rmse': train_rmse, 'test_rmse': test_rmse, 'n_samples': len(X_train)},
                 model_type='regression',
                 dataset_context=dataset_context
             )
@@ -402,7 +397,7 @@ class RunLinearRegressionTool(BaseTool, SmartMLToolMixin):
                     result_lines.append(f"  {i}. {suggestion}")
             
             # Data notes (if applicable)
-            if missing_mask.sum() > 0:
+            if missing_count > 0:
                 result_lines.append(f"\n📝 **Data Notes:** Removed {missing_count} rows with missing values")
                 
             return "\n".join(result_lines)
@@ -500,7 +495,9 @@ class RunLogisticRegressionTool(BaseTool, SmartMLToolMixin):
             n_classes = len(unique_values)
             
             if n_classes < 2:
-                return f"❌ Target column '{target_column}' must have at least 2 classes. Found: {unique_values}"
+                dtype_info = df[target_column].dtype
+                sample_values = df[target_column].head(10).tolist()
+                return f"❌ Target column '{target_column}' must have at least 2 classes. Found only: {unique_values} (dtype: {dtype_info})\n\n💡 **Diagnostic Info:**\n  • First 10 values: {sample_values}\n  • Total rows: {len(df)}\n  • Non-null values: {df[target_column].notna().sum()}\n\nℹ️ This usually happens when:\n  1. You filtered the data and removed one class\n  2. Type mismatch in filtering (e.g., filtering integers with strings)\n  3. The column was modified incorrectly"
             
             # Determine if binary or multiclass
             is_binary = n_classes == 2
@@ -513,11 +510,14 @@ class RunLogisticRegressionTool(BaseTool, SmartMLToolMixin):
                 feature_columns = numeric_cols + dataset_context['auto_included_encoded']
             
             # Prepare and validate data using shared helper
-            X, y_original, feature_columns, error = self._prepare_regression_data(
+            X, y_original, feature_columns, error, missing_count = self._prepare_regression_data(
                 df, target_column, feature_columns, allow_non_numeric_target=True
             )
             if error:
                 return error
+            
+            # Store missing count in context for suggestions
+            dataset_context['missing_removed'] = missing_count
             
             # Use LabelEncoder for all cases - handles strings, booleans, floats robustly
             label_encoder = LabelEncoder()
@@ -536,10 +536,12 @@ class RunLogisticRegressionTool(BaseTool, SmartMLToolMixin):
             class_counts = pd.Series(y).value_counts()
             minority_class_pct = class_counts.min() / len(y) * 100
             
+            # Track severe imbalance warning for output
+            imbalance_warning = None
             if minority_class_pct < 5:
                 # Severely imbalanced - warn user even if using class_weight
                 if class_weight == 'balanced':
-                    return f"⚠️ Warning: Severely imbalanced classes detected: {class_counts.to_dict()}\n\nMinority class represents only {minority_class_pct:.1f}% of data. You're using class_weight='balanced', which helps, but consider:\n\n1. **Resampling**: Use SMOTE or RandomOverSampler for minority classes\n2. **Data Collection**: Gather more samples for minority classes\n3. **Class Combination**: Merge similar rare classes if domain-appropriate\n4. **Ensemble Methods**: Try RandomForest or XGBoost which handle imbalance better\n\nProceed with caution - model performance on minority classes may be poor."
+                    imbalance_warning = f"⚠️ **Severe Class Imbalance Detected**: {class_counts.to_dict()}\n\nMinority class represents only {minority_class_pct:.1f}% of data. You're using class_weight='balanced', which helps, but consider:\n\n1. **Resampling**: Use SMOTE or RandomOverSampler for minority classes\n2. **Data Collection**: Gather more samples for minority classes\n3. **Class Combination**: Merge similar rare classes if domain-appropriate\n4. **Ensemble Methods**: Try RandomForest or XGBoost which handle imbalance better\n\n⚠️ Proceed with caution - model performance on minority classes may be poor.\n"
                 else:
                     return f"❌ Severely imbalanced classes: {class_counts.to_dict()}. Minority class is only {minority_class_pct:.1f}% of data. Set class_weight='balanced' to continue."
             elif minority_class_pct < 20:
@@ -703,7 +705,8 @@ class RunLogisticRegressionTool(BaseTool, SmartMLToolMixin):
                     'train_auc': train_auc,
                     'test_auc': test_auc,
                     'train_acc': train_acc,
-                    'test_acc': test_acc
+                    'test_acc': test_acc,
+                    'n_samples': len(X_train)
                 }
             else:
                 # For multiclass, use accuracy as primary metric
@@ -711,11 +714,9 @@ class RunLogisticRegressionTool(BaseTool, SmartMLToolMixin):
                     'train_acc': train_acc,
                     'test_acc': test_acc,
                     'train_auc': train_acc,  # Use accuracy as proxy for multiclass
-                    'test_auc': test_acc
+                    'test_auc': test_acc,
+                    'n_samples': len(X_train)
                 }
-            
-            # Store missing count in context
-            dataset_context['missing_removed'] = len(df) - len(X)
             
             quality_assessment = self._assess_model_quality(
                 metrics=metrics,
@@ -745,7 +746,13 @@ class RunLogisticRegressionTool(BaseTool, SmartMLToolMixin):
             
             # Format results as string for display
             classification_type = "Binary" if is_binary else f"Multiclass ({n_classes} classes)"
-            result_lines = [f"📊 **{classification_type} Logistic Regression Analysis: {target_column}**\n"]
+            result_lines = []
+            
+            # Add imbalance warning at the top if present
+            if imbalance_warning:
+                result_lines.append(imbalance_warning)
+            
+            result_lines.append(f"📊 **{classification_type} Logistic Regression Analysis: {target_column}**\n")
             result_lines.append(f"🔑 Model Key: `{model_key}`\n")
             
             # Model summary with regularization info

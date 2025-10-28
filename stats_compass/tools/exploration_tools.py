@@ -5,6 +5,7 @@ Provides comprehensive data exploration and analysis capabilities.
 """
 
 import re
+import ast
 import psutil
 import os
 from typing import Type, Optional, List
@@ -13,6 +14,96 @@ import numpy as np
 import streamlit as st
 from pydantic import BaseModel, Field, PrivateAttr
 from langchain.tools.base import BaseTool
+
+# Import centralized configuration constants
+from stats_compass.constants import (
+    MAX_QUERY_LINES,
+    MAX_VARIABLE_SIZE_MB,
+    MAX_MEMORY_USAGE_MB,
+    MEMORY_WARNING_THRESHOLD_MB,
+    MAX_DISPLAY_COLUMNS,
+    MAX_DISPLAY_COLWIDTH,
+    MAX_PREVIEW_ROWS,
+    MAX_PREVIEW_COLUMNS,
+    STRONG_CORRELATION_THRESHOLD,
+)
+
+
+# ============================================
+# State Management
+# ============================================
+
+class DataFrameStateManager:
+    """
+    Centralized state management for dataframes and user variables.
+    
+    Provides a single source of truth for all state, preventing race conditions
+    and synchronization issues between tool instances and session state.
+    """
+    
+    @staticmethod
+    def get_active_df() -> Optional[pd.DataFrame]:
+        """Get the currently active dataframe from session state."""
+        if hasattr(st, 'session_state') and 'df' in st.session_state:
+            return st.session_state['df']
+        return None
+    
+    @staticmethod
+    def set_active_df(df: pd.DataFrame) -> None:
+        """Update the active dataframe in session state."""
+        if hasattr(st, 'session_state'):
+            st.session_state['df'] = df
+    
+    @staticmethod
+    def get_user_var(name: str) -> Optional[any]:
+        """Get a user-defined variable from session state."""
+        if hasattr(st, 'session_state') and name in st.session_state:
+            return st.session_state[name]
+        return None
+    
+    @staticmethod
+    def set_user_var(name: str, value: any) -> None:
+        """Store a user-defined variable in session state."""
+        if hasattr(st, 'session_state'):
+            st.session_state[name] = value
+    
+    @staticmethod
+    def get_all_user_vars() -> dict:
+        """Get all user-defined variables (excluding system variables)."""
+        if not hasattr(st, 'session_state'):
+            return {}
+        
+        # System/protected keys to exclude
+        protected_keys = {'df', 'pd', 'np', 'messages', 'chat_history', 
+                         'current_response_charts', 'ml_model_results',
+                         'ml_workflow_state', 'available_encoded_columns'}
+        
+        return {k: v for k, v in st.session_state.items() 
+                if k not in protected_keys and not k.startswith('_')}
+    
+    @staticmethod
+    def clear_user_vars() -> None:
+        """Clear all user-defined variables from session state."""
+        if not hasattr(st, 'session_state'):
+            return
+        
+        user_vars = DataFrameStateManager.get_all_user_vars()
+        for key in user_vars.keys():
+            del st.session_state[key]
+    
+    @staticmethod
+    def list_available_dataframes() -> List[str]:
+        """List all DataFrame objects stored in session state."""
+        if not hasattr(st, 'session_state'):
+            return []
+        
+        return [k for k, v in st.session_state.items() 
+                if isinstance(v, pd.DataFrame)]
+
+
+# ============================================
+# Exploration Tools
+# ============================================
 
 
 class GetSchemaInput(BaseModel):
@@ -89,7 +180,15 @@ class RunPandasQueryToolInput(BaseModel):
 
 class RunPandasQueryTool(BaseTool):
     name: str = "run_pandas_query"
-    description: str = "Run safe Python expressions on dataframe `df`. Allows: df['col'].unique(), df.columns, df['col'] = df['col'].replace('old','new'), variable assignments. Blocks: df=new_df, imports, file operations."
+    description: str = """Run safe Python expressions on dataframe `df`. Allows: df['col'].unique(), df.columns, df['col'] = df['col'].replace('old','new'), variable assignments. Blocks: df=new_df, imports, file operations.
+
+IMPORTANT - Type Matching in Filters:
+- ALWAYS match data types when using .isin() or comparisons
+- For integer columns, use integers: df[df['col'].isin([0, 1])]  ✓
+- For string columns, use strings: df[df['col'].isin(['0', '1'])]  ✓
+- AVOID mixing types: df[df['col'].isin(['0', 1])]  ✗ (unpredictable!)
+- Check dtype first: df['col'].dtype or df['col'].unique() to see actual values
+- Type mismatches cause filters to fail silently or behave unpredictably"""
     args_schema: Type[BaseModel] = RunPandasQueryToolInput
 
     _df: pd.DataFrame = PrivateAttr()
@@ -105,7 +204,7 @@ class RunPandasQueryTool(BaseTool):
         # Check for multi-line queries 
         lines = [line.strip() for line in query.strip().split('\n') if line.strip()]
         
-        if len(lines) > 3:  # Allow a few lines for complex analysis
+        if len(lines) > MAX_QUERY_LINES:
             return False
         
         # Critical security patterns (always blocked)
@@ -145,210 +244,237 @@ class RunPandasQueryTool(BaseTool):
             return False
             
         return True
+    
+    def _is_assignment_ast(self, query: str) -> bool:
+        """
+        Use AST parsing to reliably detect assignment statements.
+        
+        This correctly handles:
+        - filtered_df = df[df['col'] <= 3]  (assignment with comparison inside)
+        - df.loc[df['x'] == 5, 'y'] = 10    (assignment with comparison)
+        - lambda x: x if x else 0           (ternary, not assignment)
+        - df['col'] = df['old'] * 2         (column assignment)
+        
+        Returns:
+            True if query contains an assignment, False otherwise
+        """
+        try:
+            tree = ast.parse(query)
+            # Check if any node is an assignment
+            for node in ast.walk(tree):
+                if isinstance(node, (ast.Assign, ast.AugAssign, ast.AnnAssign)):
+                    return True
+            return False
+        except SyntaxError:
+            # If we can't parse it, assume it's an expression
+            # (will likely fail at exec/eval stage with better error)
+            return False
+
+    def _get_security_error_message(self, query: str) -> str:
+        """Return appropriate error message based on detected security issue."""
+        if any(pattern in query.lower() for pattern in ['df =', 'pd =', 'np =']):
+            return "❌ Cannot overwrite core objects (df, pd, np). These are protected for system stability."
+        elif 'random' in query.lower() and '=' in query:
+            return "❌ Random data generation is not allowed to prevent memory issues."
+        elif re.search(r'range\(\s*\d{6,}', query) or re.search(r'zeros\(\s*\d{6,}', query):
+            return "❌ Large data structure creation is blocked to prevent memory issues."
+        else:
+            return "❌ Unsafe query detected. Check for imports, file operations, or dangerous functions."
+    
+    def _build_safe_namespace(self) -> dict:
+        """
+        Build sandboxed namespace for query execution with defense-in-depth protection.
+        
+        Returns dict with user variables + protected core objects (df, pd, np, builtins).
+        Core objects are force-overridden to prevent shadowing.
+        Uses StateManager for consistent state access.
+        
+        Security Model:
+            - Layer 1: StateManager filters protected keys
+            - Layer 2: Double-check filtering here (defense-in-depth)
+            - Layer 3: Explicit .update() to force-override core objects
+        """
+        # Get user variables from StateManager (already filtered)
+        user_vars = DataFrameStateManager.get_all_user_vars()
+        
+        # DEFENSE IN DEPTH: Double-check protected keys aren't present
+        # (in case StateManager has a bug or state gets corrupted)
+        protected_keys = {'df', 'pd', 'np', 'str', 'int', 'float', 'bool', 
+                         'list', 'dict', 'len', 'min', 'max', 'sum', 'abs', 'round'}
+        safe_user_vars = {k: v for k, v in user_vars.items() if k not in protected_keys}
+        
+        # Get current dataframe from StateManager
+        current_df = DataFrameStateManager.get_active_df() or self._df
+        
+        # Build namespace starting with user vars
+        safe_vars = {**safe_user_vars}
+        
+        # FORCE-SET core objects with explicit .update() (these CANNOT be shadowed)
+        # Using .update() makes the override explicit - even if safe_user_vars 
+        # somehow contains 'df', this will overwrite it
+        safe_vars.update({
+            "df": current_df, 
+            "pd": pd, 
+            "np": np,
+            # Add basic Python types for common operations
+            "str": str,
+            "int": int,
+            "float": float,
+            "bool": bool,
+            "list": list,
+            "dict": dict,
+            "len": len,
+            "min": min,
+            "max": max,
+            "sum": sum,
+            "abs": abs,
+            "round": round,
+        })
+        
+        return safe_vars
+    
+    def _execute_query(self, query: str, safe_vars: dict) -> tuple:
+        """
+        Execute the query safely using exec or eval.
+        
+        Returns:
+            Tuple of (result, is_assignment) where result is the query output
+        """
+        is_assignment = self._is_assignment_ast(query)
+        
+        if is_assignment:
+            # This is an assignment statement, use exec
+            exec(query, {"__builtins__": {}}, safe_vars)
+            result = "✅ Assignment completed successfully"
+        else:
+            # This is an expression, use eval
+            result = eval(query, {"__builtins__": {}}, safe_vars)
+        
+        return result, is_assignment
+    
+    def _update_stored_state(self, safe_vars: dict):
+        """
+        Update internal state and session state with variables from executed query.
+        
+        Handles:
+        - DataFrame updates (only if identity changed)
+        - User variable storage (with size limits)
+        - Session state synchronization
+        
+        Uses StateManager for centralized state management.
+        """
+        # Get current dataframe from StateManager
+        current_df = DataFrameStateManager.get_active_df() or self._df
+        
+        # Check if main dataframe was replaced
+        if 'df' in safe_vars and safe_vars['df'] is not current_df:
+            new_df = safe_vars['df']
+            self._df = new_df
+            DataFrameStateManager.set_active_df(new_df)
+        
+        # Update user variables (filter out protected keys)
+        protected_keys = {'df', 'pd', 'np', 'str', 'int', 'float', 'bool', 'list', 
+                         'dict', 'len', 'min', 'max', 'sum', 'abs', 'round'}
+        
+        for key, value in safe_vars.items():
+            if key not in protected_keys:
+                # Only store reasonable-sized objects
+                try:
+                    if hasattr(value, '__sizeof__'):
+                        size_mb = value.__sizeof__() / 1024 / 1024
+                        if size_mb < MAX_VARIABLE_SIZE_MB:
+                            # Store via StateManager for consistency
+                            DataFrameStateManager.set_user_var(key, value)
+                            # Also update local cache for backward compatibility
+                            self._user_vars[key] = value
+                except:
+                    # If we can't check size, store it anyway (probably safe)
+                    DataFrameStateManager.set_user_var(key, value)
+                    self._user_vars[key] = value
+    
+    def _format_result(self, result: any, memory_used: float) -> str:
+        """
+        Format the query result for display.
+        
+        Includes memory warnings and stored variable info.
+        Uses StateManager to access current variables.
+        """
+        # Check for excessive memory usage
+        if memory_used > MEMORY_WARNING_THRESHOLD_MB:
+            # Clear via StateManager
+            DataFrameStateManager.clear_user_vars()
+            self._user_vars.clear()
+            return f"⚠️ Query used {memory_used:.1f}MB memory. User variables cleared for safety.\nResult: {str(result)}"
+        
+        # Show helpful info about stored variables
+        var_info = ""
+        user_vars = DataFrameStateManager.get_all_user_vars()
+        if user_vars:
+            var_names = list(user_vars.keys())
+            var_info = f"\n💾 Stored variables: {var_names}"
+        
+        return f"{str(result)}{var_info}"
+    
+    def _handle_execution_error(self, error: Exception) -> str:
+        """
+        Provide user-friendly error messages based on exception type.
+        """
+        error_msg = str(error)
+        
+        if "invalid syntax" in error_msg.lower():
+            return f"❌ Syntax error: {error_msg}"
+        elif "name" in error_msg.lower() and "not defined" in error_msg.lower():
+            available_vars = list(self._user_vars.keys()) + ['df', 'pd', 'np']
+            return f"❌ Variable not found: {error_msg}\nAvailable variables: {available_vars}"
+        else:
+            return f"❌ Error running query: {error_msg}"
 
     def _run(self, query: str) -> str:
+        """
+        Execute a pandas query safely with security validation and state management.
+        
+        This method orchestrates the entire query execution pipeline:
+        1. Security validation
+        2. Memory monitoring
+        3. Namespace setup
+        4. Query execution
+        5. State updates
+        6. Result formatting
+        """
+        # Step 1: Security validation
         if not self._is_safe_expression(query):
-            # Provide specific guidance for common issues
-            if any(pattern in query.lower() for pattern in ['df =', 'pd =', 'np =']):
-                return "❌ Cannot overwrite core objects (df, pd, np). These are protected for system stability."
-            elif 'random' in query.lower() and '=' in query:
-                return "❌ Random data generation is not allowed to prevent memory issues."
-            elif re.search(r'range\(\s*\d{6,}', query) or re.search(r'zeros\(\s*\d{6,}', query):
-                return "❌ Large data structure creation is blocked to prevent memory issues."
-            else:
-                return "❌ Unsafe query detected. Check for imports, file operations, or dangerous functions."
+            return self._get_security_error_message(query)
 
-        # Memory monitoring
+        # Step 2: Start memory monitoring
         process = psutil.Process(os.getpid())
         memory_before = process.memory_info().rss / 1024 / 1024  # MB
 
         try:
             # Set pandas display options
-            max_cols = 50
-            with pd.option_context('display.max_columns', max_cols, 
+            with pd.option_context('display.max_columns', MAX_DISPLAY_COLUMNS, 
                                    'display.width', None, 
-                                   'display.max_colwidth', 50):
+                                   'display.max_colwidth', MAX_DISPLAY_COLWIDTH):
                 
-                # Create sandboxed namespace
-                safe_vars = {
-                    "df": self._df, 
-                    "pd": pd, 
-                    "np": np,
-                    # Add basic Python types for common operations
-                    "str": str,
-                    "int": int,
-                    "float": float,
-                    "bool": bool,
-                    "list": list,
-                    "dict": dict,
-                    "len": len,
-                    "min": min,
-                    "max": max,
-                    "sum": sum,
-                    "abs": abs,
-                    "round": round,
-                    **self._user_vars  # Include user variables from previous queries
-                }
+                # Step 3: Build safe execution namespace
+                safe_vars = self._build_safe_namespace()
                 
-                # Execute query - detect assignment by checking if = is used outside of comparison operators
-                # Assignments: x = value, df['col'] = value
-                # Expressions: df[df['col'] == value], df['col'] > 5
                 
-                # Check if this is an assignment by looking for = that's not part of ==, !=, <=, >=
-                is_assignment = False
-                if '=' in query:
-                    # Remove comparison operators to see if any standalone = remains
-                    temp_query = query.replace('==', '').replace('!=', '').replace('<=', '').replace('>=', '')
-                    if '=' in temp_query:
-                        is_assignment = True
+                # Step 4: Execute the query
+                result, is_assignment = self._execute_query(query, safe_vars)
                 
-                if is_assignment:
-                    # This is an assignment statement, use exec
-                    exec(query, {"__builtins__": {}}, safe_vars)
-                    result = "✅ Assignment completed successfully"
-                    
-                    # Update the tool's dataframe if it was modified
-                    if 'df' in safe_vars:
-                        self._df = safe_vars['df']
-                        # Also update session state
-                        if hasattr(st, 'session_state') and 'df' in st.session_state:
-                            st.session_state.df = safe_vars['df']
-                else:
-                    # This is an expression, use eval
-                    result = eval(query, {"__builtins__": {}}, safe_vars)
+                # Step 5: Update stored state (dataframe + user variables)
+                self._update_stored_state(safe_vars)
                 
-                # Update user variables (but protect core objects)
-                protected_keys = {'df', 'pd', 'np'}
-                for key, value in safe_vars.items():
-                    if key not in protected_keys and key not in {'df', 'pd', 'np'}:
-                        # Only store reasonable-sized objects
-                        try:
-                            if hasattr(value, '__sizeof__'):
-                                size_mb = value.__sizeof__() / 1024 / 1024
-                                if size_mb < 50:  # Max 50MB per variable
-                                    self._user_vars[key] = value
-                                    # ALSO store in session state so other tools can access it
-                                    if hasattr(st, 'session_state'):
-                                        st.session_state[key] = value
-                        except:
-                            # If we can't check size, store it anyway (probably safe)
-                            self._user_vars[key] = value
-                            # ALSO store in session state
-                            if hasattr(st, 'session_state'):
-                                st.session_state[key] = value
-                
-                # Check memory usage after execution
+                # Step 6: Check memory usage and format result
                 memory_after = process.memory_info().rss / 1024 / 1024  # MB
                 memory_used = memory_after - memory_before
                 
-                if memory_used > 100:  # More than 100MB used
-                    # Clear user variables to free memory
-                    self._user_vars.clear()
-                    return f"⚠️ Query used {memory_used:.1f}MB memory. User variables cleared for safety.\nResult: {str(result)}"
-                
-                # Show helpful info about stored variables
-                var_info = ""
-                if self._user_vars:
-                    var_names = list(self._user_vars.keys())
-                    var_info = f"\n💾 Stored variables: {var_names}"
-                
-                return f"{str(result)}{var_info}"
+                return self._format_result(result, memory_used)
                 
         except Exception as e:
-            error_msg = str(e)
-            if "invalid syntax" in error_msg.lower():
-                return f"❌ Syntax error: {error_msg}"
-            elif "name" in error_msg.lower() and "not defined" in error_msg.lower():
-                available_vars = list(self._user_vars.keys()) + ['df', 'pd', 'np']
-                return f"❌ Variable not found: {error_msg}\nAvailable variables: {available_vars}"
-            else:
-                return f"❌ Error running query: {error_msg}"
+            return self._handle_execution_error(e)
 
     def _arun(self, query: str):
-        raise NotImplementedError("Async not supported")
-
-
-class UpdateDataframeInput(BaseModel):
-    source: str = Field(description="Name of the variable containing the new dataframe to use as the active dataset (e.g., 'filtered_df', 'sampled_df', 'cleaned_df')")
-
-
-class UpdateDataframeTool(BaseTool):
-    name: str = "update_dataframe"
-    description: str = """
-    Update the active dataframe with a filtered or transformed version created by run_pandas_query.
-    
-    Use this when you've created a modified dataframe (e.g., filtered_df, sampled_df) and want all 
-    subsequent ML tools (run_linear_regression, run_logistic_regression, etc.) to use the updated dataset 
-    instead of the original.
-    
-    Common workflow:
-    1. Use run_pandas_query to filter/transform: "filtered_df = df[df['column'] > value]"
-    2. Use update_dataframe to make it active: update_dataframe(source='filtered_df')
-    3. Now all ML tools will use filtered_df instead of original df
-    
-    Example: After filtering to top 5 genres to have enough samples per class for classification.
-    """
-    args_schema: Type[BaseModel] = UpdateDataframeInput
-
-    _df: pd.DataFrame = PrivateAttr()
-
-    def __init__(self, df: pd.DataFrame):
-        super().__init__()
-        self._df = df
-
-    def _run(self, source: str) -> str:
-        try:
-            # Check if the source variable exists in session state
-            if not hasattr(st, 'session_state'):
-                return "❌ Session state not available. This tool requires Streamlit session state."
-            
-            # First check if it's in RunPandasQueryTool's user_vars
-            # We need to check all tools that might have this variable
-            source_df = None
-            
-            # Try to get from session state directly
-            if source in st.session_state:
-                source_df = st.session_state[source]
-            else:
-                return f"❌ Variable '{source}' not found in session state. Available variables: {[k for k in st.session_state.keys() if isinstance(st.session_state.get(k), pd.DataFrame)]}"
-            
-            # Validate it's actually a DataFrame
-            if not isinstance(source_df, pd.DataFrame):
-                return f"❌ Variable '{source}' is not a DataFrame. Type: {type(source_df).__name__}"
-            
-            # Store the old dataframe info
-            old_shape = st.session_state.df.shape if 'df' in st.session_state else self._df.shape
-            
-            # Update the active dataframe in session state
-            st.session_state.df = source_df
-            
-            # Update this tool's internal dataframe reference
-            self._df = source_df
-            
-            new_shape = source_df.shape
-            
-            # Calculate the change
-            row_change = new_shape[0] - old_shape[0]
-            col_change = new_shape[1] - old_shape[1]
-            
-            row_change_str = f"{row_change:+,}" if row_change != 0 else "no change"
-            col_change_str = f"{col_change:+}" if col_change != 0 else "no change"
-            
-            result = (
-                f"✅ Active dataframe updated from '{source}'\n"
-                f"\n📊 Dataset Changes:\n"
-                f"   Previous: {old_shape[0]:,} rows × {old_shape[1]} columns\n"
-                f"   Current:  {new_shape[0]:,} rows × {new_shape[1]} columns\n"
-                f"   Change:   {row_change_str} rows, {col_change_str} columns\n"
-                f"\n💡 All subsequent ML tools will now use this updated dataset."
-            )
-            
-            return result
-            
-        except Exception as e:
-            return f"❌ Error updating dataframe: {e}"
-
-    def _arun(self, source: str):
         raise NotImplementedError("Async not supported")
 
 
@@ -370,18 +496,18 @@ class DatasetPreviewTool(BaseTool):
     def _run(self, num_rows: int = 5) -> str:
         try:
             # Safety limits
-            if num_rows > 20:
-                num_rows = 20
+            if num_rows > MAX_PREVIEW_ROWS:
+                num_rows = MAX_PREVIEW_ROWS
                 
             num_cols = len(self._df.columns)
-            if num_cols > 100:
-                return f"❌ Dataset has too many columns ({num_cols}). Maximum supported: 100 columns for preview."
+            if num_cols > MAX_PREVIEW_COLUMNS:
+                return f"❌ Dataset has too many columns ({num_cols}). Maximum supported: {MAX_PREVIEW_COLUMNS} columns for preview."
             
             # Set pandas display options to show columns (safe limits)
-            max_cols = min(100, num_cols)
+            max_cols = min(MAX_PREVIEW_COLUMNS, num_cols)
             with pd.option_context('display.max_columns', max_cols, 
                                    'display.width', None, 
-                                   'display.max_colwidth', 50):
+                                   'display.max_colwidth', MAX_DISPLAY_COLWIDTH):
                 preview = self._df.head(num_rows)
                 
                 result_lines = [f"📊 Dataset Preview ({len(self._df)} total rows, {num_cols} columns):"]
@@ -605,12 +731,12 @@ class CorrelationMatrixTool(BaseTool):
             for i in range(len(corr_matrix.columns)):
                 for j in range(i+1, len(corr_matrix.columns)):
                     corr_val = corr_matrix.iloc[i, j]
-                    if abs(corr_val) > 0.7:  # Strong correlation threshold
+                    if abs(corr_val) > STRONG_CORRELATION_THRESHOLD:
                         col1, col2 = corr_matrix.columns[i], corr_matrix.columns[j]
                         strong_corrs.append(f"{col1} ↔ {col2}: {corr_val:.3f}")
 
             if strong_corrs:
-                result_lines.append(f"\n🔍 Strong correlations (|r| > 0.7):")
+                result_lines.append(f"\n🔍 Strong correlations (|r| > {STRONG_CORRELATION_THRESHOLD}):")
                 for corr in strong_corrs:
                     result_lines.append(f"  {corr}")
 

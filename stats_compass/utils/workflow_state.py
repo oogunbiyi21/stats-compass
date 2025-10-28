@@ -45,6 +45,13 @@ WORKFLOW_STATE_SCHEMA = {
         'set_by': ['MeanTargetEncodingTool'],
         'read_by': ['RunLinearRegressionTool', 'RunLogisticRegressionTool']
     },
+    'encoded_column_mapping': {
+        'type': Dict[str, str],
+        'description': 'Maps original categorical column names to their encoded versions. Example: {"city": "city_encoded", "genre": "genre_mean_enc"}',
+        'default': {},
+        'set_by': ['MeanTargetEncodingTool'],
+        'read_by': ['SmartMLToolMixin._analyze_ml_features']
+    },
     'encoding_target': {
         'type': str,
         'description': 'Target column used for encoding (for consistency checks)',

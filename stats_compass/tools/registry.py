@@ -9,7 +9,6 @@ from typing import List
 
 from tools.exploration_tools import (
     RunPandasQueryTool,
-    UpdateDataframeTool,
     GroupByAggregateTool,
     TopCategoriesTool,
     HistogramTool,
@@ -44,6 +43,9 @@ from tools.data_cleaning_tools import (
     SuggestImputationStrategiesTool,
     ApplyImputationTool
 )
+from tools.outlier_tools import (
+    HandleOutliersTool
+)
 from tools.statistical_test_tools import (
     RunTTestTool,
     RunZTestTool,
@@ -73,7 +75,6 @@ class ToolRegistry:
         """Get data exploration and analysis tools"""
         return [
             RunPandasQueryTool(df=df),
-            UpdateDataframeTool(df=df),
             GroupByAggregateTool(df=df),
             TopCategoriesTool(df=df),
             HistogramTool(df=df),
@@ -106,6 +107,7 @@ class ToolRegistry:
         return [
             AnalyzeMissingDataTool(df=df),
             DetectOutliersTool(df=df),
+            HandleOutliersTool(df=df),  # ← New outlier handling tool
             FindDuplicatesTool(df=df),
             SuggestDataCleaningActionsTool(df=df),
             ApplyBasicCleaningTool(df=df),

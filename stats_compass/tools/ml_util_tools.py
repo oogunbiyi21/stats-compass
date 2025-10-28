@@ -237,6 +237,7 @@ class MeanTargetEncodingTool(BaseTool, SmartMLToolMixin):
                 f"  • Original columns preserved for reference",
                 f"  • Total new encoded columns: {n_output_cols}",
                 f"  • Missing values handled automatically",
+                f"  • Encoded column mapping tracked for smart ML suggestions",
                 f"  • Use encoded columns for ML models"
             ])
             
@@ -244,10 +245,29 @@ class MeanTargetEncodingTool(BaseTool, SmartMLToolMixin):
             # Workflow Intelligence: Update state and generate suggestions
             # ========================================
             
+            # Build encoded column mapping (original → encoded column name)
+            encoded_mapping = {}
+            if n_output_cols == n_features:
+                # Simple case: one-to-one mapping
+                for i, orig_col in enumerate(valid_categorical_columns):
+                    encoded_mapping[orig_col] = encoded_column_names[i]
+            else:
+                # Multiclass case: map to first encoded column for each feature
+                # (for simplicity, though the feature has multiple encoded columns)
+                for i, orig_col in enumerate(valid_categorical_columns):
+                    # Find the first encoded column for this original column
+                    matching_cols = [name for name in encoded_column_names if name.startswith(f'{orig_col}_encoded')]
+                    if matching_cols:
+                        encoded_mapping[orig_col] = matching_cols[0]  # Use first column as primary
+            
             # Update workflow state to notify other tools
+            current_mapping = get_workflow_state().get('encoded_column_mapping', {})
+            current_mapping.update(encoded_mapping)
+            
             update_workflow_state({
                 'categorical_encoded': True,
                 'available_encoded_columns': encoded_column_names,
+                'encoded_column_mapping': current_mapping,
                 'encoding_target': target_column
             })
             
