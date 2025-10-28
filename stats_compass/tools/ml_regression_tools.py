@@ -47,7 +47,14 @@ class RunLinearRegressionTool(BaseTool, SmartMLToolMixin):
     """
     
     name: str = "run_linear_regression"
-    description: str = "Fit linear regression models to predict continuous outcomes with comprehensive diagnostics and PM-friendly interpretations"
+    description: str = """Fit linear regression models to predict continuous outcomes with comprehensive diagnostics.
+    
+- Target must be numeric and continuous
+- For data with >10% missing: Run apply_imputation first or specify clean features explicitly
+- For categorical features: Run mean_target_encoding first (auto-includes encoded columns if available)
+- Auto-selection: Includes only numeric features with <20% missing data
+
+📊 Best for: Predicting sales, prices, quantities, measurements, etc."""
     args_schema: Type[BaseModel] = LinearRegressionInput
 
     _df: pd.DataFrame = PrivateAttr()
@@ -109,7 +116,7 @@ class RunLinearRegressionTool(BaseTool, SmartMLToolMixin):
                 numeric_cols = [col for col in numeric_cols if col != target_column]
                 feature_columns = numeric_cols + dataset_context['auto_included_encoded']
             
-            X, y, feature_columns, error, missing_count = self._prepare_regression_data(
+            X, y, feature_columns, error, missing_count, auto_exclusion_warning = self._prepare_regression_data(
                 df, target_column, feature_columns, allow_non_numeric_target=False
             )
             if error:
@@ -261,6 +268,10 @@ class RunLinearRegressionTool(BaseTool, SmartMLToolMixin):
             # Format results as string for display
             result_lines = [f"📊 **Linear Regression Analysis: {target_column}**\n"]
             result_lines.append(f"🔑 Model Key: `{model_key}`\n")
+            
+            # Show auto-exclusion warning if features were filtered out
+            if auto_exclusion_warning:
+                result_lines.append(f"\n{auto_exclusion_warning}\n")
             
             # Model summary
             model_type_str = "Linear Regression"
@@ -430,7 +441,15 @@ class RunLogisticRegressionTool(BaseTool, SmartMLToolMixin):
     """
     
     name: str = "run_logistic_regression"
-    description: str = "Fit logistic regression models for binary or multiclass classification with probability predictions and coefficient interpretation"
+    description: str = """Fit logistic regression models for binary or multiclass classification with probability predictions.
+    
+- Target must have at least 2 classes (check with df[target].value_counts())
+- For data with >10% missing: Run apply_imputation first or specify clean features explicitly
+- For categorical features: Run mean_target_encoding first (auto-includes encoded columns if available)
+- Auto-selection: Includes only numeric features with <20% missing data
+- For imbalanced classes: Use class_weight='balanced'
+
+📊 Best for: Predicting categories, yes/no outcomes, customer segments, etc."""
     args_schema: Type[BaseModel] = LogisticRegressionInput
 
     _df: pd.DataFrame = PrivateAttr()
@@ -503,7 +522,7 @@ class RunLogisticRegressionTool(BaseTool, SmartMLToolMixin):
                 feature_columns = numeric_cols + dataset_context['auto_included_encoded']
             
             # Prepare and validate data using shared helper
-            X, y_original, feature_columns, error, missing_count = self._prepare_regression_data(
+            X, y_original, feature_columns, error, missing_count, auto_exclusion_warning = self._prepare_regression_data(
                 df, target_column, feature_columns, allow_non_numeric_target=True
             )
             if error:
@@ -518,6 +537,18 @@ class RunLogisticRegressionTool(BaseTool, SmartMLToolMixin):
             
             # Store the mapping for interpretation
             class_mapping = dict(zip(label_encoder.classes_, range(len(label_encoder.classes_))))
+            
+            # Missing data removal may have eliminated entire classes
+            n_classes_after_cleaning = len(label_encoder.classes_)
+            if n_classes_after_cleaning < 2:
+                removed_info = f"\n\n💡 **What happened:**\n  • Original data had {n_classes} classes: {list(unique_values)}\n  • After removing {missing_count} rows with missing values, only {n_classes_after_cleaning} class remains: {list(label_encoder.classes_)}\n  • Missing data removal eliminated entire class(es)!"
+                
+                # Provide actionable guidance
+                high_missing_features = [col for col in feature_columns if df[col].isnull().sum() / len(df) > 0.3]
+                if high_missing_features:
+                    return f"❌ After removing rows with missing data, only {n_classes_after_cleaning} class remains (need at least 2 for classification).{removed_info}\n\n🔧 **Solutions:**\n  1. **Remove high-missing features**: These features have >30% missing data: {high_missing_features}\n     → Retry without these features\n  2. **Impute missing data first**: Use apply_imputation tool before modeling\n  3. **Use simpler features**: Try model with fewer features that have less missing data"
+                else:
+                    return f"❌ After removing rows with missing data, only {n_classes_after_cleaning} class remains (need at least 2 for classification).{removed_info}\n\n🔧 **Solutions:**\n  1. **Impute missing data first**: Use apply_imputation tool before modeling\n  2. **Collect more data**: The dataset is too small after cleaning"
             
             # Check data sufficiency (need at least 10 samples per class for reliable modeling)
             min_samples_per_class = 10
@@ -747,6 +778,10 @@ class RunLogisticRegressionTool(BaseTool, SmartMLToolMixin):
             
             result_lines.append(f"📊 **{classification_type} Logistic Regression Analysis: {target_column}**\n")
             result_lines.append(f"🔑 Model Key: `{model_key}`\n")
+            
+            # Show auto-exclusion warning if features were filtered out
+            if auto_exclusion_warning:
+                result_lines.append(f"\n{auto_exclusion_warning}\n")
             
             # Add prominent next steps note
             result_lines.append(f"📋 **Next Steps:**")

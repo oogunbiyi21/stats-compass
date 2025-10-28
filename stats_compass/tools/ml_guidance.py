@@ -209,38 +209,69 @@ class SmartMLToolMixin:
         Args:
             df: Input dataframe
             target_column: Name of target column
-            feature_columns: List of feature columns (None = auto-select numeric)
+            feature_columns: List of feature columns (None = auto-select clean numeric features)
             allow_non_numeric_target: Whether to allow non-numeric targets (for classification)
             
         Returns:
-            Tuple of (X, y, feature_columns, error_message)
-            If error occurs, returns (None, None, None, error_string)
+            Tuple of (X, y, feature_columns, error_message, n_missing, auto_exclusion_warning)
+            - X: Feature matrix (None if error)
+            - y: Target vector (None if error)
+            - feature_columns: List of selected features (None if error)
+            - error_message: Error string if validation failed (None if success)
+            - n_missing: Number of rows removed due to missing data
+            - auto_exclusion_warning: Warning about auto-excluded features (None if none excluded)
         """
+        auto_exclusion_warning = None  # Track if we auto-excluded features
+        
         # Validate target column exists
         if target_column not in df.columns:
-            return None, None, None, f"❌ Target column '{target_column}' not found in dataset. Available columns: {list(df.columns)}"
+            return None, None, None, f"❌ Target column '{target_column}' not found in dataset. Available columns: {list(df.columns)}", 0, None
         
         # Validate target is numeric (for regression only)
         if not allow_non_numeric_target and not pd.api.types.is_numeric_dtype(df[target_column]):
-            return None, None, None, f"❌ Target column '{target_column}' must be numeric for regression"
+            return None, None, None, f"❌ Target column '{target_column}' must be numeric for regression", 0, None
         
         # Auto-select features if not provided
         if feature_columns is None:
             numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
-            feature_columns = [col for col in numeric_cols if col != target_column]
+            numeric_cols = [col for col in numeric_cols if col != target_column]
+            
+            # Only include features with <20% missing data for reliable modeling
+            MISSING_THRESHOLD = 0.20
+            clean_features = []
+            excluded_features = []
+            
+            for col in numeric_cols:
+                missing_pct = df[col].isnull().sum() / len(df)
+                if missing_pct < MISSING_THRESHOLD:
+                    clean_features.append(col)
+                else:
+                    excluded_features.append((col, missing_pct))
+            
+            feature_columns = clean_features
+            
+            # Provide helpful feedback if we excluded features
+            if excluded_features and not feature_columns:
+                excluded_info = ", ".join([f"{col} ({pct:.1%} missing)" for col, pct in excluded_features])
+                return None, None, None, f"❌ All numeric features have >{MISSING_THRESHOLD:.0%} missing data: {excluded_info}\n\n💡 Run apply_imputation first or specify features explicitly with feature_columns=['col1', 'col2']", 0, None
+            elif excluded_features:
+                # Store excluded info for informational message (will be shown in results)
+                excluded_list = [f"{col} ({pct:.1%} missing)" for col, pct in excluded_features]
+                auto_exclusion_warning = f"ℹ️ Auto-excluded {len(excluded_features)} high-missing feature(s): {', '.join(excluded_list[:3])}" + (f" and {len(excluded_list)-3} more" if len(excluded_list) > 3 else "")
         
         if not feature_columns:
-            return None, None, None, "❌ No numeric feature columns available for regression"
+            return None, None, None, "❌ No numeric feature columns available for regression", 0, None
         
         # Check for missing feature columns
         missing_cols = [col for col in feature_columns if col not in df.columns]
         if missing_cols:
-            return None, None, None, f"❌ Feature columns not found: {missing_cols}"
+            return None, None, None, f"❌ Feature columns not found: {missing_cols}", 0, None
         
         # Extract features and target
         X = df[feature_columns].copy()
         y = df[target_column].copy()
         
+        # Remove rows with missing values and track count
         # Remove rows with missing values and track count
         missing_mask = X.isnull().any(axis=1) | y.isnull()
         n_missing = int(missing_mask.sum())
@@ -248,8 +279,7 @@ class SmartMLToolMixin:
             X = X[~missing_mask]
             y = y[~missing_mask]
         
-        return X, y, feature_columns, None, n_missing
-    
+        return X, y, feature_columns, None, n_missing, auto_exclusion_warning
     # ============================================
     # FEATURE ANALYSIS (Universal for all ML tools)
     # ============================================
