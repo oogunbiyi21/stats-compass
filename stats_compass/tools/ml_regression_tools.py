@@ -8,26 +8,19 @@ with PM-friendly interpretations and professional visualizations.
 import time
 import pandas as pd
 import numpy as np
-import plotly.express as px
-import plotly.graph_objects as go
 from sklearn.linear_model import LinearRegression, LogisticRegression, Lasso, Ridge, ElasticNet
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error, accuracy_score, roc_auc_score
+from sklearn.metrics import mean_squared_error, r2_score, accuracy_score, roc_auc_score
 from sklearn.preprocessing import StandardScaler, LabelEncoder
 from statsmodels.tsa.arima.model import ARIMA
 from statsmodels.tsa.stattools import adfuller
 from statsmodels.stats.diagnostic import acorr_ljungbox
 from scipy import stats
 import streamlit as st
-from typing import Type, Dict, List, Any, Optional, Tuple
+from typing import Type, List, Optional
 from pydantic import BaseModel, Field, PrivateAttr
 from langchain.tools.base import BaseTool
-from stats_compass.utils.workflow_state import get_workflow_state, update_workflow_state
-from stats_compass.tools.ml_guidance import (
-    SmartMLToolMixin,
-    assess_regression_quality, format_suggestion,
-    PRIORITY_CRITICAL, PRIORITY_RECOMMENDED, PRIORITY_OPTIONAL
-)
+from stats_compass.tools.ml_guidance import SmartMLToolMixin
 
 
 class LinearRegressionInput(BaseModel):

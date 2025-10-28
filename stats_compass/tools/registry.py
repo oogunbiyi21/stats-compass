@@ -8,13 +8,20 @@ import pandas as pd
 from typing import List
 
 from tools.exploration_tools import (
-    RunPandasQueryTool,
     GroupByAggregateTool,
     TopCategoriesTool,
     HistogramTool,
     CorrelationMatrixTool,
-    DatasetPreviewTool,
     CreateHistogramChartTool,
+)
+from tools.query_tools import (
+    InspectDataTool,
+    ModifyColumnTool,
+    FilterDataframeTool,
+    GetSchemaTool,
+    GetSampleRowsTool,
+    DescribeColumnTool,
+    DatasetPreviewTool,
 )
 from tools.chart_tools import (
     CreateBarChartTool,
@@ -74,12 +81,20 @@ class ToolRegistry:
     def get_exploration_tools(df: pd.DataFrame) -> List:
         """Get data exploration and analysis tools"""
         return [
-            RunPandasQueryTool(df=df),
+            # Core query/inspection tools (replaces run_pandas_query)
+            InspectDataTool(df=df),
+            ModifyColumnTool(df=df),
+            FilterDataframeTool(df=df),
+            # Basic inspection tools
+            GetSchemaTool(df=df),
+            GetSampleRowsTool(df=df),
+            DescribeColumnTool(df=df),
+            DatasetPreviewTool(df=df),
+            # Analysis tools
             GroupByAggregateTool(df=df),
             TopCategoriesTool(df=df),
             HistogramTool(df=df),
             CorrelationMatrixTool(df=df),
-            DatasetPreviewTool(df=df),
             CreateHistogramChartTool(df=df),
         ]
     
