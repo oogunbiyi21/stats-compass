@@ -236,6 +236,11 @@ class RunLinearRegressionTool(BaseTool, SmartMLToolMixin):
                 
                 # Also store as 'linear_regression' for backwards compatibility
                 st.session_state.ml_model_results['linear_regression'] = st.session_state.ml_model_results[model_key]
+                
+                # BUGFIX: Also store in trained_models for download functionality
+                if not hasattr(st.session_state, 'trained_models'):
+                    st.session_state.trained_models = {}
+                st.session_state.trained_models[model_key] = st.session_state.ml_model_results[model_key]
             
             # ============================================
             # Quality Assessment (using mixin)
@@ -714,6 +719,11 @@ class RunLogisticRegressionTool(BaseTool, SmartMLToolMixin):
                 
                 # Also store as 'logistic_regression' for backwards compatibility
                 st.session_state.ml_model_results['logistic_regression'] = st.session_state.ml_model_results[model_key]
+                
+                # BUGFIX: Also store in trained_models for download functionality
+                if not hasattr(st.session_state, 'trained_models'):
+                    st.session_state.trained_models = {}
+                st.session_state.trained_models[model_key] = st.session_state.ml_model_results[model_key]
             
             # ============================================
             # Quality Assessment (using mixin)
