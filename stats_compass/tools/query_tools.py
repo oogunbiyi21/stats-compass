@@ -62,13 +62,16 @@ class InspectDataTool(BaseTool):
     Evaluate read-only pandas expressions for data inspection and calculation.
     
     ✅ USE FOR:
+    - Query syntax: df.query("price > 100"), df.query("category == 'A'")
     - Getting statistics: df['col'].mean(), df['col'].describe()
     - Checking values: df['col'].unique(), df['col'].value_counts()
     - Aggregations: df.groupby('cat')['val'].sum()
     - Date ranges: df['date'].min(), df['date'].max()
-    - Counting: len(df), (df['col'] > 5).sum()
+    - Counting: len(df), df.query("price > 100").shape[0]
     - Multiple values: (df['date'].min(), df['date'].max())
     - Data types: df.dtypes, df['col'].dtype
+    
+    💡 TIP: Use df.query() for simple conditions - it's cleaner and less error-prone than boolean indexing.
     
     ❌ DOES NOT:
     - Modify data (use modify_column or create_column instead)
@@ -81,15 +84,17 @@ class InspectDataTool(BaseTool):
     name: str = "inspect_data"
     description: str = """Evaluate read-only pandas expressions for data inspection and calculation.
 
-USE FOR:
+USE FOR (prefer .query() for simple conditions):
+- Query syntax: df.query("price > 100"), df.query("category == 'A'")
 - Statistics: df['col'].mean(), df['col'].describe()
 - Unique values: df['col'].unique(), df['col'].value_counts()
 - Aggregations: df.groupby('cat')['val'].sum()
 - Date ranges: df['date'].min(), df['date'].max()
-- Counting: len(df), (df['col'] > 5).sum()
+- Counting: len(df), df.query("price > 100").shape[0]
 - Multiple values: (df['date'].min(), df['date'].max())
 - Data types: df.dtypes, df['col'].dtype
 
+TIP: df.query() is cleaner than df[df['col'] > value] for simple filters.
 DOES NOT modify data or create variables. Read-only only."""
     
     args_schema: Type[BaseModel] = InspectDataInput
@@ -344,11 +349,14 @@ class FilterDataframeTool(BaseTool):
     Create a filtered subset of the dataframe and store it as a variable.
     
     ✅ USE FOR:
-    - Filtering rows: df['price'] > 100
-    - Date filtering: df['date'] > '2020-01-01'
-    - Multiple conditions: (df['price'] > 100) & (df['category'] == 'A')
-    - Value filtering: df['status'].isin(['active', 'pending'])
+    - Query syntax: df.query("price > 100")
+    - Date filtering: df.query("date > '2020-01-01'")
+    - Multiple conditions: df.query("price > 100 and category == 'A'")
+    - Complex filters (use boolean indexing): df['status'].isin(['active', 'pending'])
     - String filtering: df['name'].str.contains('test')
+    
+    💡 TIP: Use df.query() for simple numeric/string comparisons. Use boolean indexing 
+    (df[...]) for complex operations like .isin(), .str.contains(), or .isna().
     
     The condition should return a boolean Series. The filtered dataframe
     will be stored with the given result_name and can be used in subsequent
@@ -356,7 +364,7 @@ class FilterDataframeTool(BaseTool):
     
     Example:
         filter_dataframe(
-            condition="df['price'] > 100",
+            condition="df.query('price > 100')",
             result_name="expensive_items"
         )
         # Creates 'expensive_items' dataframe with rows where price > 100
@@ -365,12 +373,14 @@ class FilterDataframeTool(BaseTool):
     name: str = "filter_dataframe"
     description: str = """Create a filtered subset of the dataframe and store it as a variable.
 
-USE FOR:
-- Filter rows: df['price'] > 100
-- Date filtering: df['date'] > '2020-01-01'
-- Multiple conditions: (df['price'] > 100) & (df['category'] == 'A')
-- Value filtering: df['status'].isin(['active', 'pending'])
+USE FOR (prefer .query() for simple conditions):
+- Query syntax: df.query("price > 100")
+- Date filtering: df.query("date > '2020-01-01'")
+- Multiple conditions: df.query("price > 100 and category == 'A'")
+- Complex filters: df['status'].isin(['active', 'pending'])
+- String filtering: df['name'].str.contains('test')
 
+TIP: df.query() is cleaner for simple comparisons. Use df[...] for .isin(), .str methods.
 The condition returns a boolean Series. Filtered dataframe is stored with result_name."""
     
     args_schema: Type[BaseModel] = FilterDataframeInput
