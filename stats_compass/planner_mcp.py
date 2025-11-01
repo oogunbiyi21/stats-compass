@@ -4,7 +4,12 @@ from typing import Any, Dict, List
 import pandas as pd
 
 from langchain_openai import ChatOpenAI
-from langchain.agents import AgentExecutor, create_tool_calling_agent
+# Handle different LangChain versions (0.3.x vs 1.0.x)
+try:
+    from langchain.agents import AgentExecutor, create_tool_calling_agent
+except ImportError:
+    from langchain.agents.agent import AgentExecutor
+    from langchain.agents import create_tool_calling_agent
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
 from tools.registry import ToolRegistry
