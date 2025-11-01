@@ -137,7 +137,9 @@ def run_mcp_planner(user_query: str, df: pd.DataFrame, chat_history: List[Dict] 
          "2. Complete ML workflows fully: train → evaluate → visualize → interpret (don't wait for prompts)\n"
          "3. Create visualizations when users ask to 'show' or 'plot' data\n"
          "4. Provide specific, quantitative interpretations with actual numbers\n"
-         "5. Use dataset context knowledge to avoid unnecessary preview calls\n\n"
+         "5. Use dataset context knowledge to avoid unnecessary preview calls\n"
+         "6. Never loop through years/categories manually - use groupby or inspect_data with aggregation\n"
+         "7. If a task requires >3 tool calls, rethink your approach for efficiency\n\n"
          "INTERPRETATION EXAMPLES:\n"
          "✅ GOOD: \"Feature A has coefficient 0.45 (95% CI: 0.32-0.58, p<0.001), increasing target by 0.45 units per unit increase. This is 2.1× stronger than Feature B (coef: 0.21, p=0.03).\"\n"
          "❌ BAD: \"Feature A is the most important predictor\"\n\n"
@@ -160,7 +162,8 @@ def run_mcp_planner(user_query: str, df: pd.DataFrame, chat_history: List[Dict] 
         tools=tools,
         verbose=True,
         handle_parsing_errors=True,   # prevents crashes on freeform outputs
-        return_intermediate_steps=True
+        return_intermediate_steps=True,
+        max_iterations=10  # Prevent infinite loops and force efficient thinking
     )
 
     # 5) Convert chat history to langchain format
