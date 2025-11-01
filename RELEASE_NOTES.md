@@ -1,8 +1,8 @@
-# Stats Compass v1.0.0 - Release Notes 🎉
+# Stats Compass v1.0.0 - Release Notes
 
 **Release Date**: October 29, 2025
 
-Welcome to the first public release of **Stats Compass** - your AI-powered data analysis assistant!
+First public release of **Stats Compass** - an AI-powered data analysis assistant.
 
 ## What is Stats Compass?
 
@@ -25,14 +25,14 @@ No more remembering pandas syntax or sklearn parameters. Just describe what you 
 
 ### End-to-End Workflow
 From data cleaning to model training, Stats Compass handles the complete analysis pipeline:
-1. **Import** data (CSV, Excel, JSON, Parquet)
+1. **Import** data (CSV, Excel)
 2. **Clean** with automated suggestions and one-click fixes
-3. **Explore** with 50+ analysis tools and visualizations
+3. **Explore** with analysis tools and visualizations
 4. **Model** with regression, classification, and time series
 5. **Export** models and charts for production use
 
 ### Smart & Reliable
-- **Auto-feature selection** filters out problematic columns (>20% missing)
+- **Auto-feature selection** filters out problematic columns
 - **Data validation** catches issues before model training fails
 - **Detailed errors** explain exactly what went wrong and how to fix it
 - **Workflow tracking** prevents common mistakes (e.g., modeling before cleaning)
@@ -47,9 +47,9 @@ From data cleaning to model training, Stats Compass handles the complete analysi
 - Filter and transform data with natural language
 
 ### Visualization (10+ Chart Types)
-- Line, scatter, bar, histogram, box plot, pie chart
+- Line, scatter, bar, histogram, box plot
 - Correlation heatmaps and pair plots
-- Distribution plots and QQ plots
+- Distribution plots
 - Time series plots
 - All charts are interactive (Plotly) and downloadable
 
@@ -80,7 +80,7 @@ From data cleaning to model training, Stats Compass handles the complete analysi
 - **Product Managers** who need quick insights without coding
 - **Students** learning statistics and machine learning
 - **Researchers** doing reproducible analysis
-- **Anyone** who has data and questions!
+- **Anyone** who has data and questions.
 
 ## 🔐 Getting Started
 
@@ -104,11 +104,11 @@ export OPENAI_API_KEY="your-key-here"
 streamlit run app.py
 ```
 
-Navigate to `http://localhost:8501` and start analyzing!
+Navigate to `http://localhost:8501` and start analyzing.
 
-### Try a Sample Dataset
-1. Click "📂 Load Sample Dataset"
-2. Choose "Titanic Survival Data"
+### Try It Out
+1. Upload your own CSV/Excel file, or
+2. Try with a sample dataset (like Titanic from seaborn/sklearn)
 3. Ask: *"What factors predict survival? Build a model."*
 
 ## 🐛 Major Fixes in This Release
@@ -132,10 +132,9 @@ This release includes several critical bug fixes discovered during internal test
 
 ## 🎓 Learning Resources
 
-- **Built-in Datasets**: 15+ sample datasets to practice with
-- **Example Prompts**: See `docs/example_prompts.md`
 - **Tool Documentation**: Each tool has detailed descriptions and prerequisites
 - **Agent Logs**: Watch what the AI agent is doing in real-time
+- **Example workflows**: Try prompts like "Show correlation matrix", "Build a regression model", "Clean missing data"
 
 ## 🚧 Known Limitations
 
@@ -162,7 +161,7 @@ Found a bug? Have a feature request? Want to contribute?
 
 ## 🙏 Acknowledgments
 
-Stats Compass is built on the shoulders of giants:
+Stats Compass is built on:
 - **LangChain**: Agent framework and tool orchestration
 - **OpenAI**: GPT-4 language model
 - **Streamlit**: Beautiful web app framework
@@ -175,6 +174,6 @@ MIT License - See LICENSE file for details
 
 ---
 
-**Ready to explore your data? Download v1.0.0 and start asking questions!**
+**Ready to explore your data? Download v1.0.0 and start asking questions**
 
 [Download Release](https://github.com/oogunbiyi21/ds-auto-insights/releases/tag/v1.0.0) | [Documentation](https://github.com/oogunbiyi21/ds-auto-insights#readme) | [Report Issues](https://github.com/oogunbiyi21/ds-auto-insights/issues)

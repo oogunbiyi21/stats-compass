@@ -6,19 +6,7 @@ import pandas as pd
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
-# Robust LangChain imports that work across 0.1.x, 0.2.x, and 1.0.x
-try:
-    # Try modern LangChain first (0.2.x+)
-    from langchain.agents import AgentExecutor, create_tool_calling_agent
-except (ImportError, AttributeError):
-    try:
-        # Try LangChain 0.1.x
-        from langchain.agents import AgentExecutor, create_openai_functions_agent
-        create_tool_calling_agent = create_openai_functions_agent
-    except (ImportError, AttributeError):
-        # Fallback to structured chat (most stable)
-        from langchain.agents import AgentExecutor, create_structured_chat_agent
-        create_tool_calling_agent = create_structured_chat_agent
+from langchain.agents import create_tool_calling_agent, AgentExecutor
 
 from tools.registry import ToolRegistry
 from prompts.versions import PROMPT_VERSION

@@ -261,7 +261,7 @@ def generate_smart_suggestions(df: pd.DataFrame) -> List[Dict[str, Any]]:
         time_col = analysis['date_columns'][0]
         target_col = analysis['numeric_columns'][0]
         ml_suggestions.append({
-            "title": f"� ARIMA Forecast: {target_col}",
+            "title": f"📈 ARIMA Forecast: {target_col}",
             "description": f"Forecast future values of {target_col} over time",
             "query": f"Build an ARIMA model to forecast {target_col} using {time_col}",
             "tool": "run_arima_analysis",
