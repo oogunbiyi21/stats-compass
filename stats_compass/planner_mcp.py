@@ -4,7 +4,7 @@ from typing import Any, Dict, List
 import pandas as pd
 
 from langchain_openai import ChatOpenAI
-from langchain.agents import create_tool_calling_agent, AgentExecutor
+from langchain.agents import AgentExecutor, create_tool_calling_agent
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
 from tools.registry import ToolRegistry
