@@ -1,6 +1,11 @@
 # 🧭 Stats Compass
 
-An AI-powered data analysis tool that lets you explore datase## 🎮 Features (v1.0.0)
+> **📍 You are on the PUBLIC BETA branch (v1.0.0-public-beta)**  
+> Users provide their own OpenAI API key. For the password-protected version, see `v1.0.0-private-beta`.
+
+An AI-powered data analysis tool that lets you explore datasets through natural language conversations. Upload CSV files and ask questions about your data.
+
+## 🎮 Features (v1.0.0)
 
 ### ✅ What's Included
 - **50+ Analysis Tools**: From basic stats to advanced ML models
