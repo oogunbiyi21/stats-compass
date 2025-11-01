@@ -1,21 +1,41 @@
 # 🧭 Stats Compass
 
-An AI-powered data analysis tool that lets you explore datasets through natural language conversations. Upload CSV files and ask questions about your data.
+An AI-powered data analysis tool that lets you explore datase## 🎮 Features (v1.0.0)
+
+### ✅ What's Included
+- **50+ Analysis Tools**: From basic stats to advanced ML models
+- **Natural Language Interface**: Ask questions in plain English
+- **Data Exploration**: Schema, statistics, correlations, groupby, filtering
+- **10+ Visualizations**: Line, scatter, bar, histogram, heatmap, box plot, and more
+- **Data Cleaning**: Automated suggestions, imputation, outlier handling
+- **Machine Learning**: Linear/logistic regression, ARIMA time series
+- **Statistical Tests**: T-tests, z-tests, chi-square, ANOVA
+- **Model Export**: Download trained models as .joblib files
+- **Chart Export**: Save visualizations as PNG images
+- **15+ Sample Datasets**: Practice with built-in data
+
+### ⚠️ Limitations
+- **Requires GPT-4 API key** (costs ~$0.01-0.05 per analysis)
+- **Best with <100k rows** (memory constraints for larger datasets)
+- **Tabular data only** (CSV, Excel, JSON, Parquet)
+- **No SQL support** (yet - coming in v1.1.0)
+- **English only** natural language processingral language conversations. Upload CSV files and ask questions about your data.
 
 ## 📦 **Stable Release vs Development**
 
-### ✅ **For Users: Use v1.0.0-mvp Release**
-- **[📥 Download Stable Release](https://github.com/oogunbiyi21/stats-compass/releases/tag/v1.0.0-mvp)**
-- Production-ready with 40+ analysis tools
-- Comprehensive testing and documentation
+### ✅ **For Users: Use v1.0.0 Release**
+- **[📥 Download Stable Release](https://github.com/oogunbiyi21/ds-auto-insights/releases/tag/v1.0.0)**
+- Production-ready with 50+ analysis tools
+- Comprehensive testing and bug fixes
 - Stable API and reliable performance
+- Full ML capabilities (regression, classification, time series)
 
 ### 🔧 **For Developers: Main Branch**
-- Active development with LangGraph architecture migration
-- May contain experimental features and breaking changes
-- Use for contributing or following latest development
+- Stable v1.0.0 codebase
+- Well-documented and production-ready
+- Use for contributing or building on top
 
-> 💡 **Recommendation**: Use the tagged release for actual data analysis work
+> 💡 **Recommendation**: Use v1.0.0 release for data analysis work
 
 ## 🎯 Problem Statement
 
@@ -49,16 +69,17 @@ This prototype lets you:
 
 #### Option 1: Stable Release (Recommended)
 ```bash
-# Download and extract the v1.0.0-mvp release
-wget https://github.com/oogunbiyi21/stats-compass/archive/refs/tags/v1.0.0-mvp.zip
-unzip v1.0.0-mvp.zip
-cd stats-compass-1.0.0-mvp
+# Download and extract the v1.0.0 release
+wget https://github.com/oogunbiyi21/ds-auto-insights/archive/refs/tags/v1.0.0.zip
+unzip v1.0.0.zip
+cd ds-auto-insights-1.0.0
 ```
 
-#### Option 2: Development Version
+#### Option 2: Clone Repository
 ```bash
-git clone https://github.com/oogunbiyi21/stats-compass.git
+git clone https://github.com/oogunbiyi21/ds-auto-insights.git
 cd stats-compass
+git checkout v1.0.0
 ```
 
 2. Install dependencies:
@@ -74,7 +95,7 @@ cp .env.example .env
 
 4. Run the application:
 ```bash
-poetry run streamlit run stats_compass/app.py
+poetry run streamlit run app.py
 ```
 
 ## 🎮 Current Features
