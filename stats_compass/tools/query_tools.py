@@ -349,39 +349,53 @@ class FilterDataframeTool(BaseTool):
     Create a filtered subset of the dataframe and store it as a variable.
     
     ✅ USE FOR:
-    - Query syntax: df.query("price > 100")
-    - Date filtering: df.query("date > '2020-01-01'")
+    - Query syntax (PREFERRED): df.query("price > 100")
+    - Date filtering: df.query("Date > '2020-01-01'")
     - Multiple conditions: df.query("price > 100 and category == 'A'")
-    - Complex filters (use boolean indexing): df['status'].isin(['active', 'pending'])
+    - Year filtering: df.query("Date.dt.year == 2005")
+    - Complex filters: df['status'].isin(['active', 'pending'])
     - String filtering: df['name'].str.contains('test')
     
-    💡 TIP: Use df.query() for simple numeric/string comparisons. Use boolean indexing 
-    (df[...]) for complex operations like .isin(), .str.contains(), or .isna().
+    💡 IMPORTANT: 
+    - For df.query(): Use column names directly without df[] prefix
+    - For boolean indexing: Use df['column'] prefix
     
-    The condition should return a boolean Series. The filtered dataframe
-    will be stored with the given result_name and can be used in subsequent
-    operations.
-    
-    Example:
+    Examples:
+        # Query syntax (PREFERRED for simple filters)
         filter_dataframe(
             condition="df.query('price > 100')",
             result_name="expensive_items"
         )
-        # Creates 'expensive_items' dataframe with rows where price > 100
+        
+        # Date filtering with query
+        filter_dataframe(
+            condition="df.query('Date >= \"2005-01-01\" and Date <= \"2006-12-31\"')",
+            result_name="df_2005_2006"
+        )
+        
+        # Boolean indexing (for complex operations)
+        filter_dataframe(
+            condition="df['status'].isin(['active', 'pending'])",
+            result_name="filtered_data"
+        )
     """
     
     name: str = "filter_dataframe"
     description: str = """Create a filtered subset of the dataframe and store it as a variable.
 
-USE FOR (prefer .query() for simple conditions):
-- Query syntax: df.query("price > 100")
-- Date filtering: df.query("date > '2020-01-01'")
-- Multiple conditions: df.query("price > 100 and category == 'A'")
-- Complex filters: df['status'].isin(['active', 'pending'])
-- String filtering: df['name'].str.contains('test')
+SYNTAX OPTIONS:
+1. Query syntax (PREFERRED): df.query("Date > '2020-01-01'")
+2. Boolean indexing: df['Date'] > '2020-01-01'
 
-TIP: df.query() is cleaner for simple comparisons. Use df[...] for .isin(), .str methods.
-The condition returns a boolean Series. Filtered dataframe is stored with result_name."""
+EXAMPLES:
+- Simple filter: df.query("price > 100")
+- Date range: df.query("Date >= '2005-01-01' and Date <= '2006-12-31'")
+- Multiple conditions: df.query("price > 100 and category == 'A'")
+- Year filter: df.query("Date.dt.year == 2005")
+- Complex (use boolean): df['status'].isin(['active', 'pending'])
+
+IMPORTANT: In df.query(), use column names WITHOUT df[] prefix (e.g., "Date > '2020'" not "df['Date'] > '2020'")
+The condition returns a DataFrame or boolean Series. Result stored with result_name."""
     
     args_schema: Type[BaseModel] = FilterDataframeInput
     
@@ -398,9 +412,8 @@ The condition returns a boolean Series. Filtered dataframe is stored with result
         
         # Security check
         dangerous_patterns = [
-            r"\bimport\b", r"\bexec\b", r"\beval\b", 
-            r"\bopen\b", r"\.to_csv", r"\.to_excel",
-            r"\b__.*?__\b", r"\bdel\b"
+            r"\bimport\b", r"\bexec\b", r"\bopen\b", 
+            r"\.to_csv", r"\.to_excel", r"\b__.*?__\b", r"\bdel\b"
         ]
         if any(re.search(p, condition, re.IGNORECASE) for p in dangerous_patterns):
             return "❌ Unsafe condition detected"
@@ -409,25 +422,35 @@ The condition returns a boolean Series. Filtered dataframe is stored with result
             # Get active dataframe (avoid boolean evaluation)
             df = _get_current_dataframe(DataFrameStateManager.get_active_df(), self._df)
             
-            # Create namespace
-            namespace = {
-                "df": df,
-                "pd": pd,
-                "np": np,
-            }
-            
-            # Evaluate condition
-            mask = eval(condition, {"__builtins__": {}}, namespace)
-            
-            # Validate mask is boolean-like
-            if not isinstance(mask, (pd.Series, np.ndarray)):
-                return f"❌ Condition must return a boolean Series, got {type(mask).__name__}"
-            
-            if len(mask) != len(df):
-                return f"❌ Condition returned {len(mask)} values, but dataframe has {len(df)} rows"
-            
-            # Apply filter
-            filtered_df = df[mask].copy()
+            # Smart evaluation: try query() first for bare column names, fall back to eval
+            if 'df[' not in condition and 'df.' not in condition:
+                # Condition uses bare column names - use df.query()
+                try:
+                    filtered_df = df.query(condition).copy()
+                except Exception as query_error:
+                    # query() failed, provide helpful error
+                    if 'not defined' in str(query_error).lower():
+                        return (
+                            f"❌ Column not found in condition: '{condition}'\n\n"
+                            f"Available columns: {list(df.columns)}\n\n"
+                            f"💡 Check spelling and use exact column names"
+                        )
+                    else:
+                        return f"❌ {type(query_error).__name__}: {query_error}\n\n💡 Check your condition syntax"
+            else:
+                # Condition references df - use eval()
+                namespace = {"df": df, "pd": pd, "np": np}
+                result_val = eval(condition, {"__builtins__": {}}, namespace)
+                
+                # Handle different return types
+                if isinstance(result_val, pd.DataFrame):
+                    filtered_df = result_val.copy()
+                elif isinstance(result_val, (pd.Series, np.ndarray)):
+                    if len(result_val) != len(df):
+                        return f"❌ Condition returned {len(result_val)} values, but dataframe has {len(df)} rows"
+                    filtered_df = df[result_val].copy()
+                else:
+                    return f"❌ Condition must return a DataFrame or boolean Series, got {type(result_val).__name__}"
             
             # Store in StateManager
             DataFrameStateManager.set_user_var(result_name, filtered_df)

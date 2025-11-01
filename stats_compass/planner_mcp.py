@@ -9,6 +9,32 @@ from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
 from tools.registry import ToolRegistry
 from prompts.versions import PROMPT_VERSION
+import re
+
+
+def sanitize_agent_output(result: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Remove hallucinated base64 images from agent output.
+    
+    GPT-4 sometimes hallucinates fake chart data when it doesn't have
+    the right tool or takes a shortcut. This catches those cases.
+    """
+    if 'output' not in result:
+        return result
+    
+    output = result['output']
+    
+    # Pattern: ![alt text](data:image/png;base64,...)
+    base64_pattern = r'!\[([^\]]*)\]\(data:image/[^;]+;base64,[A-Za-z0-9+/=]+\)'
+    
+    if re.search(base64_pattern, output):
+        # Hallucination detected - remove it
+        output = re.sub(base64_pattern, '', output)
+        result['output'] = output.strip()
+        result['hallucination_detected'] = True
+    
+    return result
+
 
 def generate_dataset_context(df: pd.DataFrame) -> str:
     """Generate a comprehensive context string about the dataset for the LLM"""
@@ -151,7 +177,11 @@ def run_mcp_planner(user_query: str, df: pd.DataFrame, chat_history: List[Dict] 
         "chat_history": messages
     })
     
+    # Sanitize output to remove hallucinated images
+    result = sanitize_agent_output(result)
+    
     # Add version tracking for metrics correlation
     result['prompt_version'] = PROMPT_VERSION
     
     return result
+

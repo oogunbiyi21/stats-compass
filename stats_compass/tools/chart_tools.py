@@ -177,7 +177,11 @@ class CreateLineChartInput(BaseModel):
 
 class CreateLineChartTool(BaseTool):
     name: str = "create_line_chart"
-    description: str = "Creates a line chart to show trends over time or ordered data."
+    description: str = (
+        "Create a line chart visualization to show trends over time or ordered data. "
+        "This tool only creates visualizations, it does not calculate statistics or analyze trends. "
+        "To calculate trends, growth rates, or other metrics, use the inspect_data tool."
+    )
     args_schema: Type[BaseModel] = CreateLineChartInput
 
     _df: pd.DataFrame = PrivateAttr()
@@ -206,23 +210,6 @@ class CreateLineChartTool(BaseTool):
 
             chart_title = title or f"{y_column} over {x_column}"
             
-            result = f"📊 {chart_title}\n\n"
-            result += f"Data points: {len(plot_data)}\n"
-            result += f"{y_column} range: {plot_data[y_column].min():.2f} to {plot_data[y_column].max():.2f}\n"
-            
-            # Calculate trend
-            if len(plot_data) > 1:
-                first_val = plot_data[y_column].iloc[0]
-                last_val = plot_data[y_column].iloc[-1]
-                change = ((last_val - first_val) / first_val * 100) if first_val != 0 else 0
-                
-                if change > 5:
-                    result += f"📈 Upward trend: +{change:.1f}%\n"
-                elif change < -5:
-                    result += f"📉 Downward trend: {change:.1f}%\n"
-                else:
-                    result += f"➡️ Relatively stable: {change:.1f}%\n"
-
             # Store chart data for Streamlit rendering
             if hasattr(st, 'session_state'):
                 if 'current_response_charts' not in st.session_state:
@@ -237,7 +224,13 @@ class CreateLineChartTool(BaseTool):
                 }
                 st.session_state.current_response_charts.append(chart_info)
             
-            result += "\nChart data prepared for display. 📈"
+            # Return only chart metadata
+            result = f"✅ Chart created: {chart_title}\n\n"
+            result += f"📊 Chart Type: Line Chart\n"
+            result += f"📈 Data Points: {len(plot_data)}\n"
+            result += f"📐 {y_column} Range: {plot_data[y_column].min():.2f} to {plot_data[y_column].max():.2f}\n\n"
+            result += f"� To analyze trends or calculate statistics, use the 'inspect_data' tool."
+            
             return result
 
         except Exception as e:
@@ -256,7 +249,11 @@ class TimeSeriesAnalysisInput(BaseModel):
 
 class TimeSeriesAnalysisTool(BaseTool):
     name: str = "time_series_analysis"
-    description: str = "Analyze trends and patterns in time series data. Automatically handles date parsing and resampling."
+    description: str = (
+        "Create a visualization of time series data with automatic date handling and resampling. "
+        "This tool only prepares chart data, it does not calculate statistics or trends. "
+        "To calculate year-over-year changes, growth rates, or other metrics, use the inspect_data tool."
+    )
     args_schema: Type[BaseModel] = TimeSeriesAnalysisInput
 
     _df: pd.DataFrame = PrivateAttr()
@@ -351,26 +348,14 @@ class TimeSeriesAnalysisTool(BaseTool):
                     st.session_state.current_response_charts = []
                 st.session_state.current_response_charts.append(chart_info)
             
-            # Summary statistics
-            summary = f"""📈 Time Series Analysis: {value_column} over {date_column}
+            # Return only chart metadata - not analysis
+            summary = f"""✅ Chart created: {value_column} over {date_column}
 
-📊 Data Summary:
-  • Time period: {resampled.index.min().strftime('%Y-%m-%d')} to {resampled.index.max().strftime('%Y-%m-%d')}
-  • Frequency: {freq} ({agg_method})
-  • Data points: {len(resampled)}
+📊 Chart Type: Time Series ({freq} frequency, {agg_method} aggregation)
+📈 Data Points: {len(resampled)}
+� Time Period: {resampled.index.min().strftime('%Y-%m-%d')} to {resampled.index.max().strftime('%Y-%m-%d')}
 
-📈 Trend Analysis:
-  • Overall change: {trend_change:.2f} ({trend_pct:+.1f}%)
-  • Start value: {resampled.iloc[0]:.2f}
-  • End value: {resampled.iloc[-1]:.2f}
-
-🔍 Key Statistics:
-  • Maximum: {max_value:.2f} on {max_date.strftime('%Y-%m-%d')}
-  • Minimum: {min_value:.2f} on {min_date.strftime('%Y-%m-%d')}
-  • Mean: {resampled.mean():.2f}
-  • Std Dev: {resampled.std():.2f}
-
-Chart data prepared for display. 📈"""
+💡 To analyze trends or calculate statistics, use the 'inspect_data' tool on the time series data."""
             
             return summary
             
