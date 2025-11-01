@@ -4,13 +4,21 @@ from typing import Any, Dict, List
 import pandas as pd
 
 from langchain_openai import ChatOpenAI
-# Handle different LangChain versions (0.3.x vs 1.0.x)
-try:
-    from langchain.agents import AgentExecutor, create_tool_calling_agent
-except ImportError:
-    from langchain.agents.agent import AgentExecutor
-    from langchain.agents import create_tool_calling_agent
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+
+# Robust LangChain imports that work across 0.1.x, 0.2.x, and 1.0.x
+try:
+    # Try modern LangChain first (0.2.x+)
+    from langchain.agents import AgentExecutor, create_tool_calling_agent
+except (ImportError, AttributeError):
+    try:
+        # Try LangChain 0.1.x
+        from langchain.agents import AgentExecutor, create_openai_functions_agent
+        create_tool_calling_agent = create_openai_functions_agent
+    except (ImportError, AttributeError):
+        # Fallback to structured chat (most stable)
+        from langchain.agents import AgentExecutor, create_structured_chat_agent
+        create_tool_calling_agent = create_structured_chat_agent
 
 from tools.registry import ToolRegistry
 from prompts.versions import PROMPT_VERSION
@@ -139,7 +147,8 @@ def run_mcp_planner(user_query: str, df: pd.DataFrame, chat_history: List[Dict] 
         tools=tools,
         verbose=True,
         handle_parsing_errors=True,   # prevents crashes on freeform outputs
-        return_intermediate_steps=True
+        return_intermediate_steps=True,
+        max_iterations=15  # Prevent infinite loops
     )
 
     # 5) Convert chat history to langchain format
