@@ -12,8 +12,8 @@ from pydantic import BaseModel, Field
 from langchain.tools.base import BaseTool
 from sklearn.preprocessing import TargetEncoder
 
-from stats_compass.utils.workflow_state import get_workflow_state, update_workflow_state
-from stats_compass.tools.ml_guidance import (
+from utils.workflow_state import get_workflow_state, update_workflow_state
+from tools.ml_guidance import (
     SmartMLToolMixin,
     PRIORITY_CRITICAL, PRIORITY_RECOMMENDED, PRIORITY_OPTIONAL,
     format_suggestion

@@ -19,10 +19,10 @@ from pydantic import BaseModel, Field, PrivateAttr
 from langchain.tools.base import BaseTool
 
 # Import DataFrameStateManager from exploration_tools
-from stats_compass.tools.exploration_tools import DataFrameStateManager
+from tools.exploration_tools import DataFrameStateManager
 
 # Import centralized configuration constants
-from stats_compass.constants import (
+from constants import (
     MAX_PREVIEW_ROWS,
     MAX_PREVIEW_COLUMNS,
 )

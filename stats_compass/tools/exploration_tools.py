@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field, PrivateAttr
 from langchain.tools.base import BaseTool
 
 # Import centralized configuration constants
-from stats_compass.constants import (
+from constants import (
     STRONG_CORRELATION_THRESHOLD,
 )
 

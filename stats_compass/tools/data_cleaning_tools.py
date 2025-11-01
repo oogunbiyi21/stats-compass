@@ -10,7 +10,7 @@ import json
 from pydantic import BaseModel, Field, PrivateAttr
 from langchain.tools.base import BaseTool
 import streamlit as st
-from stats_compass.utils.data_cleaning import (
+from utils.data_cleaning import (
     analyze_missing_data,
     detect_outliers,
     find_duplicates,
@@ -20,8 +20,8 @@ from stats_compass.utils.data_cleaning import (
     apply_imputation,
     auto_impute_missing_data
 )
-from stats_compass.utils.workflow_state import get_workflow_state, update_workflow_state
-from stats_compass.tools.ml_guidance import (
+from utils.workflow_state import get_workflow_state, update_workflow_state
+from tools.ml_guidance import (
     SmartMLToolMixin,
     PRIORITY_CRITICAL, PRIORITY_RECOMMENDED, PRIORITY_OPTIONAL,
     format_suggestion
