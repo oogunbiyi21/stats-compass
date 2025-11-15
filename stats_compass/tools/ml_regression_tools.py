@@ -20,7 +20,7 @@ import streamlit as st
 from typing import Type, List, Optional
 from pydantic import BaseModel, Field, PrivateAttr
 from langchain.tools.base import BaseTool
-from stats_compass.tools.ml_guidance import SmartMLToolMixin
+from tools.ml_guidance import SmartMLToolMixin
 
 
 class LinearRegressionInput(BaseModel):

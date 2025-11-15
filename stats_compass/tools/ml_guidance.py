@@ -32,12 +32,12 @@ import pandas as pd
 import numpy as np
 import streamlit as st
 
-from stats_compass.utils.workflow_state import (
+from utils.workflow_state import (
     get_workflow_state, update_workflow_state
 )
 
 # Import centralized ML quality constants
-from stats_compass.constants import (
+from constants import (
     QUALITY_LEVELS,
     QUALITY_POOR,
     QUALITY_MODERATE,
