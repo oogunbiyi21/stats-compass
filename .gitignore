@@ -85,3 +85,4 @@ poetry.lock
 # Miscellaneous
 stats_compass_plan.txt
 RELEASE_INSTRUCTIONS.md
+ARCHITECTURE_ROADMAP.md

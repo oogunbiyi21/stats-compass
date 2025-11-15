@@ -198,8 +198,8 @@ def create_model_exports(filename: str) -> Dict[str, bytes]:
                         exports[metadata_filename] = metadata_buffer.getvalue().encode('utf-8')
         
         # ARIMA models (special handling due to different serialization needs)
-        if hasattr(st.session_state, 'arima_models') and st.session_state.arima_models:
-            arima_models = st.session_state.arima_models
+        if hasattr(st.session_state, 'arima_results') and st.session_state.arima_results:
+            arima_models = st.session_state.arima_results
             
             for model_id, arima_data in arima_models.items():
                 try:
@@ -623,8 +623,8 @@ def render_model_export_buttons(filename: str, location: str = "sidebar"):
         model_count = len(st.session_state.trained_models)
         has_models = True
     
-    if hasattr(st.session_state, 'arima_models') and st.session_state.arima_models:
-        arima_count = len(st.session_state.arima_models)
+    if hasattr(st.session_state, 'arima_results') and st.session_state.arima_results:
+        arima_count = len(st.session_state.arima_results)
         has_models = True
     
     if not has_models:
