@@ -44,7 +44,7 @@ from utils.agent_transcript import (
     store_session_transcripts,
 )
 from planner_mcp import run_mcp_planner
-from api_key_auth import check_api_key, get_user_api_key
+from auth import check_password
 
 # ---------- Components ----------
 from components.sidebar import render_sidebar
@@ -160,7 +160,7 @@ def process_user_query(query: str, df: pd.DataFrame) -> None:
                     query, 
                     df, 
                     chat_history=st.session_state.chat_history[:-1],  # Exclude the current user message
-                    api_key=get_user_api_key()  # Pass user's API key
+                    api_key=None  # Will use OPENAI_API_KEY environment variable (private beta)
                 )
                 final_text = result.get("output", "(No output)")
             except Exception as e:
@@ -214,7 +214,8 @@ def process_user_query(query: str, df: pd.DataFrame) -> None:
         st.caption(f"Usage tracking error: {e}")
 
 
-if not check_api_key():
+# ---------- Password Authentication (Private Beta) ----------
+if not check_password():
     st.stop()
 
 # Initialize all session state variables
