@@ -1151,6 +1151,11 @@ class RunARIMATool(BaseTool):
     """
     Simple ARIMA (AutoRegressive Integrated Moving Average) time series analysis tool.
     
+    ⚠️ PERFORMANCE NOTE: Model fitting can take 30-90 seconds depending on:
+    - Dataset size (more observations = longer processing)
+    - Parameter complexity (higher p, d, q values = longer optimization)
+    - Forecast periods (more steps = longer computation)
+    
     Fits ARIMA(p,d,q) model to time series data for:
     - Time series forecasting
     - Trend analysis
@@ -1159,7 +1164,13 @@ class RunARIMATool(BaseTool):
     """
     
     name: str = "run_arima_analysis"
-    description: str = "Fit ARIMA time series model for forecasting and trend analysis. Supports structured time period inputs (forecast_number + forecast_unit like 30 days, 6 months, 2 years) with automatic step calculation based on pandas-detected data frequency."
+    description: str = (
+        "Fit ARIMA time series model for forecasting and trend analysis. "
+        "⚠️ WARNING: Model fitting can take 30-90 seconds depending on data size and parameters (p,d,q). "
+        "Higher parameter values = longer processing time. "
+        "Supports structured time period inputs (forecast_number + forecast_unit like 30 days, 6 months, 2 years) "
+        "with automatic step calculation based on pandas-detected data frequency."
+    )
     args_schema: Type[BaseModel] = ARIMAInput
 
     _df: pd.DataFrame = PrivateAttr()
@@ -1349,7 +1360,8 @@ class RunARIMATool(BaseTool):
             adf_test = adfuller(time_series)
             is_stationary = adf_test[1] <= 0.05
             
-            # Fit ARIMA model
+            # Fit ARIMA model (this can take time for large datasets or high-order models)
+            # Note: Processing time increases with: data size, p+d+q values, and forecast periods
             model = ARIMA(time_series, order=(p, d, q))
             fitted_model = model.fit()
             
@@ -1448,6 +1460,8 @@ class RunARIMATool(BaseTool):
             result_lines = [
                 f"🔮 **ARIMA({p},{d},{q}) Time Series Analysis: {value_column}**",
                 f"🔑 Model Key: `{arima_key}`",
+                f"",
+                f"⏱️ **Note:** Model fitting completed. ARIMA optimization can take 30-90 seconds for complex models.",
                 f"",
                 f"📊 **Model Performance:**",
                 f"  • AIC (Akaike Information Criterion): {fitted_model.aic:.2f}",

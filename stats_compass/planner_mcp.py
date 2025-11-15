@@ -131,6 +131,7 @@ def run_mcp_planner(user_query: str, df: pd.DataFrame, chat_history: List[Dict] 
          "WORKFLOWS:\n"
          "Data Cleaning: suggest_data_cleaning → analyze (missing/outliers/duplicates) → explain actions → apply\n"
          "Machine Learning: check data quality (>10% missing = clean first) → preprocess categoricals → train → evaluate → visualize → interpret\n"
+         "ARIMA Time Series: If user requests ARIMA forecast WITHOUT specifying (p,d,q) parameters, include this one-time warning in your response: 'I can use find_optimal_arima_parameters for automatic parameter selection (takes 2-5 min) or default parameters (p=1,d=1,q=1) for faster results. Which do you prefer?' Then wait for their choice.\n"
          "For multi-step operations, briefly outline your plan before starting.\n\n"
          "CORE PRINCIPLES:\n"
          "1. Use specialized tools first (run_pandas_query is last resort)\n"
