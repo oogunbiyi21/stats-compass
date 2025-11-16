@@ -68,6 +68,23 @@ def render_api_key_input_page(callback_func):
     
     st.markdown("# 🧭 Stats Compass")
     st.markdown("### 🔑 Enter Your OpenAI API Key to Get Started")
+
+    # API key input
+    st.markdown("---")
+    
+    with col1:
+        api_key = st.text_input(
+            "OpenAI API Key",
+            type="password",
+            placeholder="sk-proj-...",
+            key="api_key_input",
+            help="Your API key starts with 'sk-' and is about 50+ characters long"
+        )
+    
+    with col2:
+        st.markdown("<br>", unsafe_allow_html=True)  # Alignment spacer
+        if st.button("Continue", type="primary"):
+            callback_func()
     
     # Show development note if no environment variable
     is_local = "localhost" in st.context.headers.get("host", "") or not hasattr(st, "secrets")
@@ -91,24 +108,10 @@ def render_api_key_input_page(callback_func):
         4. Copy and paste it below
         """)
     
-    # API key input
     st.markdown("---")
     
     col1, col2 = st.columns([3, 1])
     
-    with col1:
-        api_key = st.text_input(
-            "OpenAI API Key",
-            type="password",
-            placeholder="sk-proj-...",
-            key="api_key_input",
-            help="Your API key starts with 'sk-' and is about 50+ characters long"
-        )
-    
-    with col2:
-        st.markdown("<br>", unsafe_allow_html=True)  # Alignment spacer
-        if st.button("Continue", type="primary"):
-            callback_func()
     
     # Show error if validation failed
     if st.session_state.get("api_key_error"):
