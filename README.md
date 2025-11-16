@@ -1,6 +1,12 @@
+<div align="center">
+  <img src="./assets/logo/logo1.png" alt="Stats Compass Logo" width="200"/>
+</div>
+
 # 🧭 Stats Compass
 
-An AI-powered data analysis tool that lets you explore datase## 🎮 Features (v1.0.0)
+An AI-powered data analysis tool that lets you explore datasets through natural language conversations. Upload CSV files and ask questions about your data.
+
+## 🎮 Features (v1.0.0)
 
 ### ✅ What's Included
 - **50+ Analysis Tools**: From basic stats to advanced ML models
