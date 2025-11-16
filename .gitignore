@@ -81,7 +81,3 @@ poetry.lock
 # Temporary files
 *.tmp
 *.temp
-
-# Miscellaneous
-stats_compass_plan.txt
-ARCHITECTURE_ROADMAP.md
