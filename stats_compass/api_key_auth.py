@@ -72,6 +72,7 @@ def render_api_key_input_page(callback_func):
     # API key input
     st.markdown("---")
     
+    col1, col2 = st.columns([3, 1])
     with col1:
         api_key = st.text_input(
             "OpenAI API Key",
@@ -110,9 +111,6 @@ def render_api_key_input_page(callback_func):
     
     st.markdown("---")
     
-    col1, col2 = st.columns([3, 1])
-    
-    
     # Show error if validation failed
     if st.session_state.get("api_key_error"):
         st.error(st.session_state["api_key_error"])
@@ -121,19 +119,19 @@ def render_api_key_input_page(callback_func):
     
     # Help links and detailed guide
     st.markdown("---")
-    col1, col2, col3, col4 = st.columns(4)
+    help_col1, help_col2, help_col3, help_col4 = st.columns(4)
     
-    with col1:
+    with help_col1:
         st.markdown("🔗 [Get API Key](https://platform.openai.com/api-keys)")
     
-    with col2:
+    with help_col2:
         st.markdown("💰 [Check Pricing](https://openai.com/pricing)")
     
-    with col3:
+    with help_col3:
         if st.button("📚 Detailed Guide"):
             st.session_state["show_api_help"] = True
     
-    with col4:
+    with help_col4:
         st.markdown("🔒 [Privacy Policy](https://openai.com/privacy/)")
     
     # Show detailed help if requested
