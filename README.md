@@ -113,12 +113,6 @@ poetry run streamlit run app.py
 - **Data Summaries**: Column info, missing values, basic stats
 - **Export**: PDF and Markdown reports (experimental)
 
-### � Limitations
-- **Small datasets only** (~1000-10000 rows work best)
-- **Basic analysis** - not a replacement for proper data science tools
-- **English only** natural language processing
-- **Requires OpenAI API key** (costs money per query)
-- **No data persistence** - upload fresh each session
 
 ## 📖 How to use it
 
@@ -154,39 +148,6 @@ Check out the `/examples` folder for real analysis examples:
 
 Each example includes actual generated reports, charts, and session data demonstrating the full export pipeline.
 
-## 🛡️ Safety & Reliability
-
-- **No arbitrary code execution** - Only whitelisted pandas operations
-- **Transparent operations** - See exactly what computations are performed
-- **Read-only operations** - Your data is never modified
-- **Deterministic results** - Same query always produces same output
-- **Error resilience** - Comprehensive error handling and recovery
-- **Chart validation** - Proper data validation before visualization
-
-## 🗺️ Roadmap
-
-See [PM Data Tool Roadmap.txt](PM%20Data%20Tool%20Roadmap.txt) for detailed development plans.
-
-**✅ Phase 1 (Complete)**: Core functionality with intelligent dataset awareness
-**✅ Phase 2 (Complete)**: Enhanced visualization pipeline and export system
-**🔄 Phase 3 (In Progress)**: Smart suggestions and advanced context handling
-**📋 Phase 4 (Planned)**: SQL connectivity and enterprise features
-**🔮 Phase 5 (Future)**: MCP integration and advanced analytics
-
-## 📈 Recent Improvements
-
-### v1.2.0 - Smart Dataset Awareness
-- ✅ Intelligent dataset context injection
-- ✅ Automatic schema detection and AI knowledge
-- ✅ Smart analysis suggestions based on data characteristics
-- ✅ Enhanced user experience with immediate data understanding
-
-### v1.1.0 - Advanced Visualization & Export
-- ✅ Time series analysis with trend calculation
-- ✅ Interactive correlation heatmaps  
-- ✅ Comprehensive export system (PDF, Markdown, Charts, JSON)
-- ✅ Chart persistence and proper state management
-- ✅ Fixed multiple time series generation conflicts
 
 ## 🤝 Contributing
 This is an experimental project. Feel free to:
