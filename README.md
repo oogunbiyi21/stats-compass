@@ -15,7 +15,7 @@
 - **50+ Analysis Tools**: Statistics, ML models (regression, ARIMA), data cleaning
 - **10+ Visualizations**: Charts, heatmaps, distributions, time series
 - **Natural Language**: Ask questions in plain English
-- **Statistical Tests**: T-tests, chi-square, ANOVA, correlations
+- **Statistical Tests**: Z-tests, T-tests, chi-square, correlations
 - **Export Everything**: Models (.joblib), charts (PNG), reports (PDF/Markdown)
 
 **Limitations**: Requires GPT-4 API key (~$0.01-0.05/analysis) • Best with <100k rows • Tabular data only
