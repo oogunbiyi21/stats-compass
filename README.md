@@ -1,10 +1,14 @@
 <div align="center">
   <img src="./assets/logo/logo1.png" alt="Stats Compass Logo" width="200"/>
+  
+  <h1>🧭 Stats Compass</h1>
+  
+  <p>An AI-powered data analysis tool that lets you explore datasets through natural language conversations. Upload CSV files and ask questions about your data.</p>
+  
+  <a href="https://stats-compass-beta.streamlit.app/" target="_blank">
+    <img src="https://img.shields.io/badge/Get%20Started-4CAF50?style=for-the-badge&logo=streamlit&logoColor=white" alt="Get Started"/>
+  </a>
 </div>
-
-# 🧭 Stats Compass
-
-An AI-powered data analysis tool that lets you explore datasets through natural language conversations. Upload CSV files and ask questions about your data.
 
 ## 🎮 Features (v1.0.0)
 
