@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="./assets/logo/logo1.png" alt="Stats Compass Logo" width="200"/>
+  <img src="./assets/logo/logo.png" alt="Stats Compass Logo" width="200"/>
   
   <h1>🧭 Stats Compass</h1>
   
