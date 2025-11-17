@@ -237,7 +237,7 @@ class RunLinearRegressionTool(BaseTool, SmartMLToolMixin):
                 # Also store as 'linear_regression' for backwards compatibility
                 st.session_state.ml_model_results['linear_regression'] = st.session_state.ml_model_results[model_key]
                 
-                # BUGFIX: Also store in trained_models for download functionality
+                # Also store in trained_models for download functionality
                 if not hasattr(st.session_state, 'trained_models'):
                     st.session_state.trained_models = {}
                 st.session_state.trained_models[model_key] = st.session_state.ml_model_results[model_key]
@@ -305,7 +305,7 @@ class RunLinearRegressionTool(BaseTool, SmartMLToolMixin):
             ])
             
             # ============================================
-            # NEW: Auto-included features note
+            # Auto-included features note
             # ============================================
             if dataset_context.get('auto_included_encoded'):
                 result_lines.extend([
@@ -384,7 +384,7 @@ class RunLinearRegressionTool(BaseTool, SmartMLToolMixin):
                 result_lines[-1] += f" {sign} {row['coefficient']:.4f} × {row['feature']}"
             
             # ============================================
-            # NEW: Quality Warnings (conditional)
+            # Quality Warnings (conditional)
             # ============================================
             if quality_assessment['warnings']:
                 result_lines.extend([
@@ -395,7 +395,7 @@ class RunLinearRegressionTool(BaseTool, SmartMLToolMixin):
                     result_lines.append(f"  • {warning}")
             
             # ============================================
-            # NEW: Smart Workflow Suggestions
+            # Smart Workflow Suggestions
             # ============================================
             if suggestions:
                 result_lines.extend([
@@ -720,7 +720,7 @@ class RunLogisticRegressionTool(BaseTool, SmartMLToolMixin):
                 # Also store as 'logistic_regression' for backwards compatibility
                 st.session_state.ml_model_results['logistic_regression'] = st.session_state.ml_model_results[model_key]
                 
-                # BUGFIX: Also store in trained_models for download functionality
+                # Also store in trained_models for download functionality
                 if not hasattr(st.session_state, 'trained_models'):
                     st.session_state.trained_models = {}
                 st.session_state.trained_models[model_key] = st.session_state.ml_model_results[model_key]

@@ -94,8 +94,7 @@ DATASET CONTEXT:
 
 def run_mcp_planner(user_query: str, df: pd.DataFrame, chat_history: List[Dict] = None, api_key: str = None) -> Dict[str, Any]:
     """
-    Tool-calling agent wired to your RunPandasQueryTool.
-    Now includes chat history for context preservation and automatic dataset context.
+    Tool-calling agent, includes chat history for context preservation and automatic dataset context.
     Returns the AgentExecutor invoke() output (dict with 'output' and possibly intermediate steps).
     """
     if chat_history is None:
@@ -126,7 +125,7 @@ def run_mcp_planner(user_query: str, df: pd.DataFrame, chat_history: List[Dict] 
          "• Statistical Analysis: Hypothesis testing (t-test, z-test, chi-square) with visualizations\n"
          "• Machine Learning: Regression, classification, time series forecasting, evaluation, preprocessing\n"
          "• Visualization: Charts, plots, heatmaps, and model diagnostic visualizations\n\n"
-         "Use specialized tools first. Only use run_pandas_query when no specialized tool exists.\n"
+         "Use specialized tools first.\n"
          "Tool details are provided in the function calling interface below.\n\n"
          "WORKFLOWS:\n"
          "Data Cleaning: suggest_data_cleaning → analyze (missing/outliers/duplicates) → explain actions → apply\n"
@@ -134,7 +133,7 @@ def run_mcp_planner(user_query: str, df: pd.DataFrame, chat_history: List[Dict] 
          "ARIMA Time Series: If user requests ARIMA forecast WITHOUT specifying (p,d,q) parameters, include this one-time warning in your response: 'I can use find_optimal_arima_parameters for automatic parameter selection (takes 2-5 min) or default parameters (p=1,d=1,q=1) for faster results. Which do you prefer?' Then wait for their choice.\n"
          "For multi-step operations, briefly outline your plan before starting.\n\n"
          "CORE PRINCIPLES:\n"
-         "1. Use specialized tools first (run_pandas_query is last resort)\n"
+         "1. Use specialized tools first\n"
          "2. Complete ML workflows fully: train → evaluate → visualize → interpret (don't wait for prompts)\n"
          "3. Create visualizations when users ask to 'show' or 'plot' data\n"
          "4. Provide specific, quantitative interpretations with actual numbers\n"
