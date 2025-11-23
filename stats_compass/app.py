@@ -43,7 +43,7 @@ from utils.agent_transcript import (
     AgentTranscriptLogger,
     store_session_transcripts,
 )
-from planner_mcp import run_mcp_planner
+from planner_mcp import run_mcp_planner_stream
 from auth import check_password
 
 # ---------- Components ----------
@@ -75,9 +75,40 @@ def render_intermediate_steps(steps: list, message_index: int) -> None:
     
     for step_i, step in enumerate(steps, 1):
         try:
+            # Step should be a tuple: (AgentAction, observation_string)
             action, observation = step
-            tool_name = getattr(action, 'tool', 'unknown_tool')
-            tool_input = getattr(action, "tool_input", {})
+            
+            # Try different ways to get tool name (robust extraction)
+            tool_name = None
+            if hasattr(action, 'tool'):
+                tool_name = action.tool
+            if not tool_name and hasattr(action, 'tool_name'):
+                tool_name = action.tool_name
+            if not tool_name and isinstance(action, dict) and 'tool' in action:
+                tool_name = action['tool']
+            if not tool_name and isinstance(action, dict) and 'name' in action:
+                tool_name = action['name']
+            
+            # Try string parsing as fallback
+            if not tool_name:
+                action_str = str(action)
+                if 'tool=' in action_str:
+                    import re
+                    match = re.search(r"tool='([^']+)'", action_str)
+                    if match:
+                        tool_name = match.group(1)
+            
+            if not tool_name:
+                tool_name = 'unknown_tool'
+            
+            # Get tool input
+            tool_input = {}
+            if hasattr(action, 'tool_input'):
+                tool_input = action.tool_input
+            elif hasattr(action, 'input'):
+                tool_input = action.input
+            elif isinstance(action, dict) and 'tool_input' in action:
+                tool_input = action['tool_input']
             
             # Create a more readable display
             with st.expander(f"Step {step_i}: {tool_name}", expanded=False):
@@ -107,7 +138,8 @@ def render_intermediate_steps(steps: list, message_index: int) -> None:
         except Exception as e:
             with st.expander(f"Step {step_i}: (parsing error)", expanded=False):
                 st.text(f"Error: {e}")
-                st.text(str(step))
+                st.text(f"Step type: {type(step)}")
+                st.text(f"Step content: {str(step)[:500]}")
     
     st.markdown("---")
 
@@ -137,6 +169,7 @@ def render_chat_message(msg: dict, message_index: int, key_prefix: str) -> None:
 def process_user_query(query: str, df: pd.DataFrame) -> None:
     """
     Process a user query by calling the agent and updating session state.
+    Uses streaming to display responses as they arrive (ChatGPT-style).
     Modifies st.session_state.chat_history and st.session_state.current_response_charts.
     
     Args:
@@ -151,29 +184,67 @@ def process_user_query(query: str, df: pd.DataFrame) -> None:
         st.markdown(query)
     st.session_state.chat_history.append({"role": "user", "content": query})
 
-    # Assistant response with spinner
+    # Assistant response with streaming
     with st.chat_message("assistant"):
-        with st.spinner("Analyzing your data and generating insights..."):
-            # Call your agent WITH chat history for context
-            try:
-                result = run_mcp_planner(
-                    query, 
-                    df, 
-                    chat_history=st.session_state.chat_history[:-1],  # Exclude the current user message
-                    api_key=None  # Will use OPENAI_API_KEY environment variable (private beta)
-                )
-                final_text = result.get("output", "(No output)")
-            except Exception as e:
-                final_text = f"❌ Agent error: {e}"
-                result = {}
-
-        # Display the actual response
-        st.markdown(final_text)
+        message_placeholder = st.empty()
+        tool_status_placeholder = st.empty()  # For showing tool execution
+        full_response = ""
+        intermediate_steps = []
+        result = {}
+        current_tool_name = None
+        
+        try:
+            # Stream the response
+            for chunk in run_mcp_planner_stream(
+                query, 
+                df, 
+                chat_history=st.session_state.chat_history[:-1],  # Exclude current user message
+                api_key=None  # Will use OPENAI_API_KEY environment variable (private beta)
+            ):
+                if chunk["type"] == "thinking":
+                    # Show initial thinking indicator
+                    tool_status_placeholder.info(f"💭 {chunk['content']}")
+                
+                elif chunk["type"] == "token":
+                    # Clear thinking indicator once we have output
+                    if not full_response:
+                        tool_status_placeholder.empty()
+                    # Append LLM token and display with cursor
+                    full_response += chunk["content"]
+                    message_placeholder.markdown(full_response + "▌")
+                
+                elif chunk["type"] == "tool_start":
+                    # Show tool execution starting
+                    current_tool_name = chunk["name"]
+                    tool_status_placeholder.info(f"🔧 Running `{current_tool_name}`...")
+                
+                elif chunk["type"] == "tool_end":
+                    # Tool completed
+                    tool_name = chunk["name"]
+                    tool_status_placeholder.success(f"✅ `{tool_name}` completed")
+                    current_tool_name = None
+                
+                elif chunk["type"] == "final":
+                    # Final result arrived
+                    full_response = chunk["output"]
+                    intermediate_steps = chunk.get("intermediate_steps", [])
+                    result = chunk
+                    break
+            
+            # Clear tool status and remove cursor from response
+            tool_status_placeholder.empty()
+            message_placeholder.markdown(full_response)
+            final_text = full_response
+            
+        except Exception as e:
+            final_text = f"❌ Agent error: {e}"
+            message_placeholder.markdown(final_text)
+            result = {}
 
         # Display intermediate steps immediately
-        if isinstance(result, dict) and result.get("intermediate_steps"):
+        if intermediate_steps:
             current_msg_index = len(st.session_state.chat_history)
-            render_intermediate_steps(result["intermediate_steps"], current_msg_index)
+            render_intermediate_steps(intermediate_steps, current_msg_index)
 
         # Display any charts that were created during this response
         current_charts = []
@@ -192,12 +263,12 @@ def process_user_query(query: str, df: pd.DataFrame) -> None:
     if current_charts:
         assistant_message["charts"] = current_charts
     # Store intermediate steps for replay in chat history
-    if isinstance(result, dict) and result.get("intermediate_steps"):
-        assistant_message["intermediate_steps"] = result["intermediate_steps"]
+    if intermediate_steps:
+        assistant_message["intermediate_steps"] = intermediate_steps
         
         # Create and store agent transcript for Agent Logs tab
         try:
-            formatted_steps = AgentTranscriptLogger.format_intermediate_steps(result["intermediate_steps"])
+            formatted_steps = AgentTranscriptLogger.format_intermediate_steps(intermediate_steps)
             transcript_summary = AgentTranscriptLogger.create_transcript_summary(formatted_steps, final_text)
             store_session_transcripts(transcript_summary)
         except Exception as e:
