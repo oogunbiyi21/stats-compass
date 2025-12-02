@@ -10,6 +10,15 @@
   </a>
 </div>
 
+---
+
+<div align="center">
+  <img src="./assets/images/demo.gif" alt="Stats Compass Demo" width="800"/>
+  <p><em>Chat with your data: Ask questions, get insights, export results</em></p>
+</div>
+
+---
+
 ## ✨ Features
 
 - **50+ Analysis Tools**: Statistics, ML models (regression, ARIMA), data cleaning
