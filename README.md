@@ -31,7 +31,7 @@
 
 ## 🎯 Why Stats Compass?
 
-Traditional BI tools need setup and technical skills. AI chat tools hallucinate. Stats Compass actually operates on your data with 50+ validated analysis tools—no hallucinations, just real pandas operations guided by AI
+Traditional BI tools need setup and technical skills. AI chat tools hallucinate. Stats Compass actually operates on your data with 50+ validated analysis tools. No hallucinations, just real pandas operations guided by AI
 
 ## 🚀 Quick Start
 
