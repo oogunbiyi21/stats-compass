@@ -5,6 +5,8 @@
   
   <p>AI-powered data analysis through natural language. Upload datasets, ask questions in plain English, get insights.</p>
   
+  <p>📖 <a href="https://medium.com/@olatunjiogunbiyi/stats-compass-an-open-source-ai-data-analyst-f457d5808946" target="_blank"><strong>Read the deep-dive blog post</strong></a></p>
+  
   <a href="https://stats-compass-beta.streamlit.app/" target="_blank">
     <img src="https://img.shields.io/badge/Get%20Started-4CAF50?style=for-the-badge&logo=streamlit&logoColor=white" alt="Get Started"/>
   </a>
